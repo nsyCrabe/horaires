@@ -47,6 +47,15 @@
   .icon-btn.danger { color: var(--danger); }
   .icon-btn[hidden] { display: none; }
 
+  .today {
+    display: block; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 16px 12px; text-align: left;
+    background: var(--panel); border: 1px solid var(--line); border-left: 5px solid #8ec5ff; border-radius: 16px;
+  }
+  .today[hidden] { display: none; }
+  .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; }
+  .today .t2 { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
+  .today.rest .t2 { color: var(--muted); }
+
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
@@ -130,6 +139,11 @@
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
+
+<button class="today" id="today" hidden>
+  <span class="t1" id="todayLabel"></span>
+  <span class="t2" id="todayValue"></span>
+</button>
 
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
@@ -270,6 +284,44 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
+  // Horaire du jour, lu dans le texte de la ligne (« 16:30-19:30 », « Repos »)
+  function parseDay(text) {
+    const t = text || '';
+    if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
+    const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
+    const out = []; let m;
+    while ((m = re.exec(t))) out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
+    return out.length ? { rest: false, label: out.join('   ·   ') } : null;
+  }
+  function todayInfo() {
+    const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    for (const it of items) {
+      if (it.start == null || !it.rows) continue;
+      const idx = Math.round((today - it.start) / 864e5);
+      if (idx < 0 || idx > 6) continue;
+      const d = new Date(it.start); d.setDate(d.getDate() + idx);
+      const row = it.rows[d.getDate()];
+      if (!row) continue;
+      return { item: it, date: today, row, parsed: parseDay(row.text) };
+    }
+    return null;
+  }
+  function updateToday() {
+    const el = $('#today'), ti = todayInfo();
+    if (!ti || !ti.parsed) { el.hidden = true; return; }
+    $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    $('#todayValue').textContent = ti.parsed.label;
+    el.classList.toggle('rest', ti.parsed.rest);
+    el.hidden = false;
+  }
+  $('#today').onclick = () => {
+    const ti = todayInfo();
+    if (!ti || ti.item.id === currentId) return;
+    const di = items.indexOf(ti.item) - items.findIndex(x => x.id === currentId);
+    currentId = ti.item.id; render(Math.sign(di));
+  };
+
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
     if (selectId != null) currentId = selectId;
@@ -283,6 +335,7 @@
   }
 
   function render(dir = 0) {
+    updateToday();
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
@@ -539,6 +592,15 @@
       if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
       rows[n] = { y0: w.bbox.y0 / H, y1: w.bbox.y1 / H };
     }
+    // Texte de chaque ligne : tous les mots situés à la même hauteur que le numéro du jour
+    if (Object.keys(rows).length) {
+      const all = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
+      for (const n of Object.keys(rows)) {
+        const r = rows[n], cy = (r.y0 + r.y1) / 2 * H, tol = (r.y1 - r.y0) * H * 0.7;
+        r.text = all.filter(w => Math.abs((w.bbox.y0 + w.bbox.y1) / 2 - cy) <= tol)
+          .sort((a, b) => a.bbox.x0 - b.bbox.x0).map(w => w.text.trim()).join(' ');
+      }
+    }
     // 2) en secours : lignes qui commencent par « lettre + numéro »
     if (!Object.keys(rows).length) {
       for (const l of ocrLines(data)) {
@@ -546,7 +608,7 @@
         if (!m || !l.bbox) continue;
         const n = +m[1];
         if (!days.includes(n) || rows[n]) continue;
-        rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H };
+        rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H, text: (l.text || '').trim() };
       }
     }
     let last = -1;   // cohérence : de haut en bas, dans l'ordre de la semaine
@@ -558,7 +620,7 @@
     scanning = true;
     try {
       const OUT = { text: true, blocks: true, tsv: true };
-      for (const it of items.filter(i => !i.scanned || i.rowsV !== 2)) {
+      for (const it of items.filter(i => !i.scanned || i.rowsV !== 3)) {
         const first = !it.scanned;
         let r, rows = null;
         try {
@@ -583,7 +645,7 @@
           if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
           return;
         }
-        it.scanned = true; it.rowsV = 2;
+        it.scanned = true; it.rowsV = 3;
         if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
         if (rows) it.rows = rows; else delete it.rows;
         await put(it);
@@ -595,7 +657,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v12 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v13 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -621,9 +683,12 @@
   $('#gear').onclick = () => {
     updateInstall();
     const cur = items.find(i => i.id === currentId);
-    $('#rowsInfo').textContent = !cur ? '' :
-      (cur.rows ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
-                : "Lignes des jours non repérées sur ce planning.");
+    let info = !cur ? '' : (cur.rows
+      ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
+      : 'Lignes des jours non repérées sur ce planning.');
+    const ti = todayInfo();
+    if (ti) info += ti.parsed ? ` Horaire d'aujourd'hui lu : ${ti.parsed.label}.` : ` Horaire d'aujourd'hui illisible (texte lu : « ${ti.row.text || ''} »).`;
+    $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
   $('#closeSet').onclick = () => dlg.close();
@@ -664,7 +729,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 2 ? 2 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 3 ? 3 : 0 });
         n++;
       }
       await refresh(lastId);
