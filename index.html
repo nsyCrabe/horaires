@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Mes horaires</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b21;
+    --line: #2a2e37;
+    --text: #eceae6;
+    --muted: #9a9ea8;
+    --accent: #4c8dff;
+    --danger: #ff6b5e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px 8px;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 650; margin: 0; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  .icon-btn {
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .icon-btn:active { background: var(--line); }
+  .icon-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-btn.danger { color: var(--danger); }
+  .icon-btn[hidden] { display: none; }
+
+  #stage {
+    flex: 1; min-height: 0; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #img {
+    width: 100%; max-height: 100%; object-fit: contain; display: block;
+    background: #fff; transform-origin: center center; will-change: transform;
+    -webkit-user-drag: none; pointer-events: none;
+  }
+  #img[hidden] { display: none; }
+
+  #empty { padding: 32px 28px; text-align: center; max-width: 420px; }
+  #empty h2 { font-size: 1.25rem; margin: 0 0 8px; }
+  #empty p { color: var(--muted); line-height: 1.5; margin: 0 0 20px; }
+  .primary {
+    background: var(--accent); color: #fff; font-weight: 650;
+    padding: 14px 22px; border-radius: 14px; font-size: 1rem;
+  }
+  .primary:active { filter: brightness(.9); }
+
+  #bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
+  #chips { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+  #chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; padding: 10px 14px; border-radius: 999px; font-size: .9rem;
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    white-space: nowrap; max-width: 60vw; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  #add { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="title">Mes horaires</h1>
+  <button class="icon-btn" id="rename" hidden aria-label="Renommer cette semaine">
+    <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+  </button>
+  <button class="icon-btn danger" id="del" hidden aria-label="Supprimer cette semaine">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+  </button>
+</header>
+
+<main id="stage">
+  <img id="img" alt="Planning de travail" hidden>
+  <div id="empty">
+    <h2>Aucun planning pour l'instant</h2>
+    <p>Ajoute la capture d'écran de tes horaires. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
+    <button class="primary" id="addEmpty">Ajouter une capture</button>
+  </div>
+</main>
+
+<nav id="bar" aria-label="Semaines">
+  <div id="chips"></div>
+  <button class="icon-btn" id="add" aria-label="Ajouter une capture">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</nav>
+
+<input type="file" id="file" accept="image/*" multiple hidden>
+<div id="toast" role="status"></div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const stage = $('#stage'), img = $('#img'), empty = $('#empty');
+  const chips = $('#chips'), title = $('#title'), fileInput = $('#file');
+  const btnRename = $('#rename'), btnDel = $('#del');
+
+  /* ---------- Stockage (IndexedDB) ---------- */
+  const dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('horaires', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('plannings', { keyPath: 'id', autoIncrement: true });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  const tx = async (mode, fn) => {
+    const db = await dbp;
+    return new Promise((res, rej) => {
+      const t = db.transaction('plannings', mode);
+      const out = fn(t.objectStore('plannings'));
+      t.oncomplete = () => res(out && out.result);
+      t.onerror = () => rej(t.error);
+    });
+  };
+  const getAll = () => tx('readonly', s => s.getAll());
+  const put = item => tx('readwrite', s => s.put(item));
+  const remove = id => tx('readwrite', s => s.delete(id));
+
+  /* ---------- État ---------- */
+  let items = [];
+  let currentId = null;
+  let url = null;
+
+  const fmtDate = ts => new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const toast = msg => {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200);
+  };
+
+  async function refresh(selectId) {
+    items = (await getAll()).sort((a, b) => b.added - a.added);
+    if (selectId != null) currentId = selectId;
+    if (!items.some(i => i.id === currentId)) currentId = items.length ? items[0].id : null;
+    render();
+  }
+
+  function render() {
+    chips.innerHTML = '';
+    items.forEach(it => {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.textContent = it.label;
+      b.setAttribute('aria-current', it.id === currentId ? 'true' : 'false');
+      b.onclick = () => { currentId = it.id; render(); };
+      chips.appendChild(b);
+    });
+    const active = chips.querySelector('[aria-current="true"]');
+    if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+
+    const cur = items.find(i => i.id === currentId);
+    if (url) { URL.revokeObjectURL(url); url = null; }
+    if (cur) {
+      url = URL.createObjectURL(cur.blob);
+      img.src = url;
+      img.hidden = true; // réaffiché au chargement pour éviter un flash
+      img.onload = () => { img.hidden = false; resetZoom(); };
+      empty.hidden = true;
+      title.textContent = cur.label;
+      btnRename.hidden = btnDel.hidden = false;
+    } else {
+      img.hidden = true; img.removeAttribute('src');
+      empty.hidden = false;
+      title.textContent = 'Mes horaires';
+      btnRename.hidden = btnDel.hidden = true;
+    }
+  }
+
+  /* ---------- Ajout / renommage / suppression ---------- */
+  async function addFiles(files) {
+    let lastId = null, n = 0;
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      const when = f.lastModified || Date.now();
+      lastId = await put({ blob: f, label: 'Planning du ' + fmtDate(when), added: Date.now() + n });
+      n++;
+    }
+    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); }
+  }
+  const openPicker = () => fileInput.click();
+  $('#add').onclick = openPicker;
+  $('#addEmpty').onclick = openPicker;
+  fileInput.onchange = async () => { await addFiles([...fileInput.files]); fileInput.value = ''; };
+
+  btnRename.onclick = async () => {
+    const cur = items.find(i => i.id === currentId); if (!cur) return;
+    const v = prompt('Nom de ce planning', cur.label);
+    if (v && v.trim()) { cur.label = v.trim().slice(0, 40); await put(cur); await refresh(cur.id); }
+  };
+  btnDel.onclick = async () => {
+    const cur = items.find(i => i.id === currentId); if (!cur) return;
+    if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
+  };
+
+  /* ---------- Zoom / déplacement (pincer, glisser, double tap) ---------- */
+  let sc = 1, px = 0, py = 0;
+  const pts = new Map();
+  let g = null, lastTap = 0, moved = false;
+
+  const apply = () => { img.style.transform = `translate(${px}px, ${py}px) scale(${sc})`; };
+  function clamp() {
+    if (sc <= 1) { sc = 1; px = py = 0; return; }
+    const r = stage.getBoundingClientRect();
+    const mx = Math.max(0, (img.offsetWidth * sc - r.width) / 2);
+    const my = Math.max(0, (img.offsetHeight * sc - r.height) / 2);
+    px = Math.min(mx, Math.max(-mx, px));
+    py = Math.min(my, Math.max(-my, py));
+  }
+  function resetZoom() { sc = 1; px = py = 0; apply(); }
+  const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  const snap = () => ({
+    sc, px, py,
+    d: pts.size === 2 ? dist() : 0,
+    m: pts.size === 2 ? mid() : [...pts.values()][0] || { x: 0, y: 0 }
+  });
+
+  stage.addEventListener('pointerdown', e => {
+    if (img.hidden) return;
+    stage.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    g = snap(); moved = false;
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId) || !g) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const m = pts.size === 2 ? mid() : [...pts.values()][0];
+    if (Math.hypot(m.x - g.m.x, m.y - g.m.y) > 6) moved = true;
+    if (pts.size === 2 && g.d) {
+      sc = Math.min(6, Math.max(1, g.sc * dist() / g.d));
+      moved = true;
+    }
+    px = g.px + (m.x - g.m.x);
+    py = g.py + (m.y - g.m.y);
+    clamp(); apply();
+  });
+  const end = e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pts.size === 0 && !moved && e.type === 'pointerup') {
+      const now = Date.now();
+      if (now - lastTap < 300) { sc = sc > 1 ? 1 : 2.5; px = py = 0; clamp(); apply(); lastTap = 0; }
+      else lastTap = now;
+    }
+    g = pts.size ? snap() : null;
+  };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  stage.addEventListener('wheel', e => {
+    if (img.hidden) return; e.preventDefault();
+    sc = Math.min(6, Math.max(1, sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); clamp(); apply();
+  }, { passive: false });
+  window.addEventListener('resize', () => { clamp(); apply(); });
+
+  /* ---------- Images reçues via « Partager » ---------- */
+  async function importShared() {
+    if (!('caches' in window)) return;
+    const cache = await caches.open('shared');
+    const keys = await cache.keys();
+    const files = [];
+    for (const k of keys) {
+      const r = await cache.match(k);
+      const blob = await r.blob();
+      files.push(new File([blob], 'partage', { type: blob.type || 'image/png', lastModified: Number(r.headers.get('X-Modified')) || Date.now() }));
+      await cache.delete(k);
+    }
+    if (files.length) await addFiles(files);
+  }
+
+  /* ---------- Démarrage ---------- */
+  (async () => {
+    await refresh();
+    if (location.search.includes('shared')) {
+      history.replaceState(null, '', location.pathname);
+      await importShared();
+    }
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  })();
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
