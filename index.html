@@ -77,11 +77,16 @@
   #chips { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
   #chips::-webkit-scrollbar { display: none; }
   .chip {
-    flex: none; padding: 10px 14px; border-radius: 999px; font-size: .9rem;
-    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
-    white-space: nowrap; max-width: 60vw; overflow: hidden; text-overflow: ellipsis;
+    flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    padding: 8px 16px; border-radius: 16px; text-align: left; min-width: 104px; max-width: 70vw;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
   }
-  .chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .c1 { font-size: 1rem; font-weight: 650; line-height: 1.25; }
+  .c2 { font-size: .75rem; color: var(--muted); line-height: 1.2; }
+  .chip.now .c2 { color: var(--accent); font-weight: 600; }
+  .chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip[aria-current="true"] .c2 { color: rgba(255,255,255,.88); }
   #add { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   #toast {
@@ -207,6 +212,23 @@
   let currentId = null;
   let url = null;
 
+  const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+  const MOIS_LONG = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  function weekInfo(it) {
+    if (it.start == null) return null;
+    const a = new Date(it.start), b = new Date(a); b.setDate(a.getDate() + 6);
+    const same = a.getMonth() === b.getMonth();
+    const short = same ? `${a.getDate()} – ${b.getDate()} ${MOIS[b.getMonth()]}`
+                       : `${a.getDate()} ${MOIS[a.getMonth()]} – ${b.getDate()} ${MOIS[b.getMonth()]}`;
+    const long = same ? `Semaine du ${a.getDate()} au ${b.getDate()} ${MOIS_LONG[b.getMonth()]}`
+                      : `Semaine du ${a.getDate()} ${MOIS_LONG[a.getMonth()]} au ${b.getDate()} ${MOIS_LONG[b.getMonth()]}`;
+    const t = new Date();
+    const mon = new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7));
+    const n = Math.round((it.start - mon.getTime()) / 864e5 / 7);
+    const rel = n === 0 ? 'Cette semaine' : n === -1 ? 'Semaine dernière' : n === 1 ? 'Semaine prochaine'
+              : n < 0 ? `Il y a ${-n} sem.` : `Dans ${n} sem.`;
+    return { short, long, rel, n };
+  }
   const fmtDate = ts => new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   const toast = (msg, ms = 2200) => {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -229,8 +251,12 @@
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
-      b.className = 'chip';
-      b.textContent = it.label;
+      const w = weekInfo(it);
+      b.className = 'chip' + (w && w.n === 0 ? ' now' : '');
+      const c1 = document.createElement('span'); c1.className = 'c1'; c1.textContent = it.custom || !w ? it.label : w.short;
+      b.appendChild(c1);
+      if (w) { const c2 = document.createElement('span'); c2.className = 'c2'; c2.textContent = w.rel; b.appendChild(c2); }
+      b.setAttribute('aria-label', (w ? w.long + ', ' + w.rel : it.label));
       b.setAttribute('aria-current', it.id === currentId ? 'true' : 'false');
       b.onclick = () => { currentId = it.id; render(); };
       chips.appendChild(b);
@@ -246,7 +272,7 @@
       img.hidden = true; // réaffiché au chargement pour éviter un flash
       img.onload = () => { img.hidden = false; resetZoom(); };
       empty.hidden = true;
-      title.textContent = cur.label;
+      const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
       btnRename.hidden = btnDel.hidden = false;
     } else {
       img.hidden = true; img.removeAttribute('src');
