@@ -247,7 +247,7 @@
     render();
   }
 
-  function render() {
+  function render(dir = 0) {
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
@@ -258,7 +258,10 @@
       if (w) { const c2 = document.createElement('span'); c2.className = 'c2'; c2.textContent = w.rel; b.appendChild(c2); }
       b.setAttribute('aria-label', (w ? w.long + ', ' + w.rel : it.label));
       b.setAttribute('aria-current', it.id === currentId ? 'true' : 'false');
-      b.onclick = () => { currentId = it.id; render(); };
+      b.onclick = () => {
+        const di = items.indexOf(it) - items.findIndex(x => x.id === currentId);
+        currentId = it.id; render(Math.sign(di));
+      };
       chips.appendChild(b);
     });
     const active = chips.querySelector('[aria-current="true"]');
@@ -270,7 +273,16 @@
       url = URL.createObjectURL(cur.blob);
       img.src = url;
       img.hidden = true; // réaffiché au chargement pour éviter un flash
-      img.onload = () => { img.hidden = false; resetZoom(); };
+      img.onload = () => {
+        img.hidden = false; resetZoom();
+        // La nouvelle semaine arrive du côté vers lequel on va (suivante = droite, précédente = gauche)
+        if (dir && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          img.animate(
+            [{ transform: `translateX(${dir * 35}%)`, opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }],
+            { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' }
+          );
+        }
+      };
       empty.hidden = true;
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
       btnRename.hidden = btnDel.hidden = false;
@@ -346,7 +358,7 @@
   function go(d) {
     const i = items.findIndex(x => x.id === currentId), n = items[i + d];
     if (!n) return false;
-    currentId = n.id; render(); return true;
+    currentId = n.id; render(d); return true;
   }
 
   stage.addEventListener('pointerdown', e => {
