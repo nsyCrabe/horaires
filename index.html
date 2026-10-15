@@ -164,6 +164,7 @@
   <section>
     <h3>Dates des plannings</h3>
     <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
+    <p id="rowsInfo"></p>
     <button class="secondary" id="rescan">Relancer la détection</button>
   </section>
   <button class="secondary" id="closeSet">Fermer</button>
@@ -511,19 +512,40 @@
       start: new Date(a.y, a.mo - 1, a.d).getTime()
     };
   }
-  // Repère la position verticale de chaque jour (ligne « L 12 … », « J 15 … ») dans l'image
-  function parseRows(data, H, start) {
-    const lines = (data.lines && data.lines.length) ? data.lines
-      : (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []));
+  // Mots reconnus par l'OCR (quelle que soit la forme de sortie de la bibliothèque)
+  function ocrWords(data) {
+    if (data.words && data.words.length) return data.words;
+    const ws = (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => (p.lines || []).flatMap(l => l.words || [])));
+    if (ws.length) return ws;
+    return (data.tsv || '').split('\n').map(r => r.split('\t')).filter(c => c.length >= 12 && c[0] === '5')
+      .map(c => ({ text: c.slice(11).join('\t'), bbox: { x0: +c[6], y0: +c[7], x1: +c[6] + +c[8], y1: +c[7] + +c[9] } }));
+  }
+  function ocrLines(data) {
+    if (data.lines && data.lines.length) return data.lines;
+    return (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []));
+  }
+  // Repère la position verticale de chaque jour (« L 12 », « J 15 »…) dans l'image
+  function parseRows(data, H, W, start) {
     const days = [];
     for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d.getDate()); }
     const rows = {};
-    for (const l of lines) {
-      const m = /^[^\dA-Za-z]*[A-Za-z|]?\s*(\d{1,2})(?![\d:\/])/.exec((l.text || '').trim());
-      if (!m || !l.bbox) continue;
+    // 1) le numéro du jour, isolé ou collé à sa lettre, dans la colonne de gauche
+    for (const w of ocrWords(data)) {
+      const m = /^[A-Za-z|]?(\d{1,2})$/.exec((w.text || '').trim());
+      if (!m || !w.bbox) continue;
       const n = +m[1];
-      if (!days.includes(n) || rows[n]) continue;
-      rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H };
+      if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
+      rows[n] = { y0: w.bbox.y0 / H, y1: w.bbox.y1 / H };
+    }
+    // 2) en secours : lignes qui commencent par « lettre + numéro »
+    if (!Object.keys(rows).length) {
+      for (const l of ocrLines(data)) {
+        const m = /^[^\dA-Za-z]*[A-Za-z|]?\s*(\d{1,2})(?![\d:\/])/.exec((l.text || '').trim());
+        if (!m || !l.bbox) continue;
+        const n = +m[1];
+        if (!days.includes(n) || rows[n]) continue;
+        rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H };
+      }
     }
     let last = -1;   // cohérence : de haut en bas, dans l'ordre de la semaine
     for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
@@ -533,27 +555,39 @@
     if (scanning) return;
     scanning = true;
     try {
-      for (const it of items.filter(i => !i.scanned || i.rowsV !== 1)) {
+      const OUT = { text: true, blocks: true, tsv: true };
+      for (const it of items.filter(i => !i.scanned || i.rowsV !== 2)) {
         const first = !it.scanned;
-        let data, H;
+        let r, rows = null;
         try {
           if (first) toast('Lecture des dates…', 60000);
           const w = await getWorker();
           const canvas = await prepare(it.blob);
-          H = canvas.height;
-          data = (await w.recognize(canvas, {}, { text: true, blocks: true })).data;
+          await w.setParameters({ tessedit_pageseg_mode: '3' });
+          const data = (await w.recognize(canvas, {}, OUT)).data;
+          r = parseRange(data.text || '');
+          const start = r ? r.start : it.start;
+          if (start != null) {
+            rows = parseRows(data, canvas.height, canvas.width, start);
+            if (!rows || Object.keys(rows).length < 7) {   // 2e essai : lecture « bloc de texte »
+              await w.setParameters({ tessedit_pageseg_mode: '6' });
+              const d2 = (await w.recognize(canvas, {}, OUT)).data;
+              const rows2 = parseRows(d2, canvas.height, canvas.width, start);
+              if (rows2 && (!rows || Object.keys(rows2).length > Object.keys(rows).length)) rows = rows2;
+              await w.setParameters({ tessedit_pageseg_mode: '3' });
+            }
+          }
         } catch (e) {
           if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
           return;
         }
-        const r = parseRange(data.text || '');
-        it.scanned = true; it.rowsV = 1;
+        it.scanned = true; it.rowsV = 2;
         if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
-        const rows = it.start != null ? parseRows(data, H, it.start) : null;
         if (rows) it.rows = rows; else delete it.rows;
         await put(it);
         await refresh();
         if (first) toast(r ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
+        else toast(rows ? `Lignes des jours repérées : ${Object.keys(rows).length}/7` : 'Lignes des jours non repérées', 3000);
       }
     } finally { scanning = false; }
   }
@@ -580,7 +614,14 @@
     await deferred.userChoice;
     deferred = null; updateInstall();
   };
-  $('#gear').onclick = () => { updateInstall(); dlg.showModal(); };
+  $('#gear').onclick = () => {
+    updateInstall();
+    const cur = items.find(i => i.id === currentId);
+    $('#rowsInfo').textContent = !cur ? '' :
+      (cur.rows ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
+                : "Lignes des jours non repérées sur ce planning.");
+    dlg.showModal();
+  };
   $('#closeSet').onclick = () => dlg.close();
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
   $('#rescan').onclick = async () => {
