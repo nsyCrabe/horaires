@@ -164,9 +164,14 @@
   };
 
   async function refresh(selectId) {
-    items = (await getAll()).sort((a, b) => (b.start ?? b.added) - (a.start ?? a.added));
+    items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
     if (selectId != null) currentId = selectId;
-    if (!items.some(i => i.id === currentId)) currentId = items.length ? items[0].id : null;
+    if (!items.some(i => i.id === currentId)) {
+      // par défaut : la semaine en cours, sinon la plus récente
+      const now = Date.now(), week = 7 * 864e5;
+      const cur = items.find(i => i.start != null && now >= i.start && now < i.start + week);
+      currentId = cur ? cur.id : (items.length ? items[items.length - 1].id : null);
+    }
     render();
   }
 
