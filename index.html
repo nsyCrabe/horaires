@@ -211,6 +211,7 @@
   let items = [];
   let currentId = null;
   let url = null;
+  let renderToken = 0;
 
   const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
   const MOIS_LONG = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -234,6 +235,37 @@
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
     clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms);
   };
+
+  // Ligne du jour : si aujourd'hui est dans la semaine affichée et que sa ligne a été repérée
+  function highlightDay(cur) {
+    if (!cur.rows || cur.start == null) return null;
+    const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    const idx = Math.round((today - cur.start) / 864e5);
+    if (idx < 0 || idx > 6) return null;
+    const d = new Date(cur.start); d.setDate(d.getDate() + idx);
+    return cur.rows[d.getDate()] ? idx : null;
+  }
+  async function buildSrc(cur) {
+    const idx = highlightDay(cur);
+    if (idx == null) return URL.createObjectURL(cur.blob);
+    try {
+      const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
+      const R = cur.rows, r = R[dayOf(idx)];
+      const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
+      const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
+      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.9;
+      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.9;
+      const bmp = await createImageBitmap(cur.blob);
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      const x = c.getContext('2d');
+      x.drawImage(bmp, 0, 0);
+      x.globalCompositeOperation = 'multiply';
+      x.fillStyle = '#ffd84d';
+      x.fillRect(0, top * c.height, c.width, (bottom - top) * c.height);
+      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+      return URL.createObjectURL(blob);
+    } catch (e) { return URL.createObjectURL(cur.blob); }
+  }
 
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
@@ -268,11 +300,14 @@
     if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
 
     const cur = items.find(i => i.id === currentId);
-    if (url) { URL.revokeObjectURL(url); url = null; }
     if (cur) {
-      url = URL.createObjectURL(cur.blob);
-      img.src = url;
       img.hidden = true; // réaffiché au chargement pour éviter un flash
+      const token = ++renderToken;
+      buildSrc(cur).then(u => {
+        if (token !== renderToken) { URL.revokeObjectURL(u); return; }
+        if (url) URL.revokeObjectURL(url);
+        url = u; img.src = u;
+      });
       img.onload = () => {
         img.hidden = false; resetZoom();
         // La nouvelle semaine arrive du côté vers lequel on va (suivante = droite, précédente = gauche)
@@ -287,6 +322,8 @@
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
       btnRename.hidden = btnDel.hidden = false;
     } else {
+      ++renderToken;
+      if (url) { URL.revokeObjectURL(url); url = null; }
       img.hidden = true; img.removeAttribute('src');
       empty.hidden = false;
       title.textContent = 'Mes horaires';
@@ -474,26 +511,49 @@
       start: new Date(a.y, a.mo - 1, a.d).getTime()
     };
   }
+  // Repère la position verticale de chaque jour (ligne « L 12 … », « J 15 … ») dans l'image
+  function parseRows(data, H, start) {
+    const lines = (data.lines && data.lines.length) ? data.lines
+      : (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []));
+    const days = [];
+    for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d.getDate()); }
+    const rows = {};
+    for (const l of lines) {
+      const m = /^[^\dA-Za-z]*[A-Za-z|]?\s*(\d{1,2})(?![\d:\/])/.exec((l.text || '').trim());
+      if (!m || !l.bbox) continue;
+      const n = +m[1];
+      if (!days.includes(n) || rows[n]) continue;
+      rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H };
+    }
+    let last = -1;   // cohérence : de haut en bas, dans l'ordre de la semaine
+    for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
+    return Object.keys(rows).length ? rows : null;
+  }
   async function scanPending() {
     if (scanning) return;
     scanning = true;
     try {
-      for (const it of items.filter(i => !i.scanned)) {
-        let data;
+      for (const it of items.filter(i => !i.scanned || i.rowsV !== 1)) {
+        const first = !it.scanned;
+        let data, H;
         try {
-          toast('Lecture des dates…', 60000);
+          if (first) toast('Lecture des dates…', 60000);
           const w = await getWorker();
-          data = (await w.recognize(await prepare(it.blob))).data;
+          const canvas = await prepare(it.blob);
+          H = canvas.height;
+          data = (await w.recognize(canvas, {}, { text: true, blocks: true })).data;
         } catch (e) {
-          toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
+          if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
           return;
         }
         const r = parseRange(data.text || '');
-        it.scanned = true;
+        it.scanned = true; it.rowsV = 1;
         if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
+        const rows = it.start != null ? parseRows(data, H, it.start) : null;
+        if (rows) it.rows = rows; else delete it.rows;
         await put(it);
         await refresh();
-        toast(r ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
+        if (first) toast(r ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
       }
     } finally { scanning = false; }
   }
@@ -524,7 +584,7 @@
   $('#closeSet').onclick = () => dlg.close();
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
   $('#rescan').onclick = async () => {
-    for (const it of items) if (!it.custom) { it.scanned = false; await put(it); }
+    for (const it of items) { it.rowsV = 0; if (!it.custom) it.scanned = false; await put(it); }
     dlg.close(); scanPending();
   };
   updateInstall();
@@ -537,7 +597,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -559,7 +619,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rowsV });
         n++;
       }
       await refresh(lastId);
@@ -575,6 +635,14 @@
   $('#addGo').onclick = () => { addDlg.close(); fileInput.click(); };
   $('#addCancel').onclick = () => addDlg.close();
   addDlg.addEventListener('click', e => { if (e.target === addDlg) addDlg.close(); });
+
+  // Si l'app reste ouverte au-delà de minuit, la ligne surlignée change
+  let dayKey = new Date().toDateString();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && new Date().toDateString() !== dayKey) {
+      dayKey = new Date().toDateString(); refresh();
+    }
+  });
 
   /* ---------- Démarrage ---------- */
   (async () => {
