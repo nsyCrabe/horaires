@@ -595,7 +595,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v10 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v12 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -664,12 +664,13 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rowsV });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 2 ? 2 : 0 });
         n++;
       }
       await refresh(lastId);
       dlg.close();
       toast(n ? (n > 1 ? n + ' plannings restaurés' : '1 planning restauré') : 'Tout était déjà là');
+      scanPending();   // repère tout de suite les lignes des jours si la sauvegarde ne les contenait pas
     } catch (err) {
       toast('Fichier de sauvegarde invalide', 3000);
     }
