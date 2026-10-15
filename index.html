@@ -109,6 +109,7 @@
   .secondary:active { background: var(--line); }
   dialog .primary[hidden] { display: none; }
   dialog > .secondary { width: 100%; }
+  dialog p.version { text-align: center; font-size: .75rem; margin: 14px 0 0; opacity: .8; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   #addDlg .primary { width: 100%; margin-bottom: 10px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -168,6 +169,7 @@
     <button class="secondary" id="rescan">Relancer la détection</button>
   </section>
   <button class="secondary" id="closeSet">Fermer</button>
+  <p class="version" id="version"></p>
 </dialog>
 
 <dialog id="addDlg" aria-labelledby="addTitle">
@@ -261,7 +263,7 @@
       const x = c.getContext('2d');
       x.drawImage(bmp, 0, 0);
       x.globalCompositeOperation = 'multiply';
-      x.fillStyle = '#ffd84d';
+      x.fillStyle = '#4d8cff';
       x.fillRect(0, top * c.height, c.width, (bottom - top) * c.height);
       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
       return URL.createObjectURL(blob);
@@ -593,7 +595,9 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
+  const APP_VERSION = 'v10 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
+  $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
   const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   function updateInstall() {
