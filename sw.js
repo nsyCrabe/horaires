@@ -1,4 +1,4 @@
-const CACHE = 'horaires-v3';
+const CACHE = 'horaires-v4';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable.png'];
 
 self.addEventListener('install', e => {
@@ -39,7 +39,7 @@ self.addEventListener('fetch', e => {
 
   // Réseau d'abord (mises à jour faciles), cache en secours (hors-ligne)
   e.respondWith(
-    fetch(req).then(res => {
+    fetch(req.url, { cache: 'no-cache' }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
