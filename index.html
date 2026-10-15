@@ -182,6 +182,11 @@
     <p id="rowsInfo"></p>
     <button class="secondary" id="rescan">Relancer la détection</button>
   </section>
+  <section>
+    <h3>Mise à jour</h3>
+    <p>Si le numéro de version en bas n'a pas changé après un envoi sur GitHub, appuie ici. Tes plannings ne sont pas effacés.</p>
+    <button class="secondary" id="update">Forcer la mise à jour</button>
+  </section>
   <button class="secondary" id="closeSet">Fermer</button>
   <p class="version" id="version"></p>
 </dialog>
@@ -657,7 +662,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v13 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v14 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -692,6 +697,27 @@
     dlg.showModal();
   };
   $('#closeSet').onclick = () => dlg.close();
+  // Vide les fichiers de l'app gardés en cache (pas les plannings) puis recharge la dernière version
+  $('#update').onclick = async () => {
+    const b = $('#update');
+    if (!navigator.onLine) { toast('Pas de connexion : impossible de mettre à jour', 3000); return; }
+    b.disabled = true; b.textContent = 'Mise à jour…';
+    try {
+      for (const f of ['./', 'index.html', 'sw.js', 'manifest.webmanifest']) {
+        const r = await fetch(f, { cache: 'reload' });
+        if (!r.ok) throw new Error(f);
+      }
+    } catch (e) {
+      b.disabled = false; b.textContent = 'Forcer la mise à jour';
+      toast('Échec du téléchargement, réessaie plus tard', 3000);
+      return;
+    }
+    try {
+      if ('serviceWorker' in navigator) await Promise.all((await navigator.serviceWorker.getRegistrations()).map(r => r.unregister()));
+      if (window.caches) for (const k of await caches.keys()) if (k !== 'shared') await caches.delete(k);
+    } catch (e) {}
+    location.reload();
+  };
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
   $('#rescan').onclick = async () => {
     for (const it of items) { it.rowsV = 0; if (!it.custom) it.scanned = false; await put(it); }
@@ -770,7 +796,7 @@
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   })();
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 })();
 </script>
 </body>
