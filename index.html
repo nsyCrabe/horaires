@@ -90,6 +90,20 @@
     opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  dialog {
+    border: 0; background: var(--panel); color: var(--text);
+    border-radius: 20px 20px 0 0; width: 100%; max-width: 520px;
+    margin: auto auto 0; padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h2 { margin: 0 0 16px; font-size: 1.15rem; }
+  dialog h3 { margin: 0 0 6px; font-size: .95rem; }
+  dialog section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  dialog p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; font-size: .92rem; }
+  .secondary { background: var(--bg); border: 1px solid var(--line); padding: 12px 18px; border-radius: 12px; font-size: .95rem; }
+  .secondary:active { background: var(--line); }
+  dialog .primary[hidden] { display: none; }
+  dialog > .secondary { width: 100%; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 </style>
@@ -103,6 +117,9 @@
   </button>
   <button class="icon-btn danger" id="del" hidden aria-label="Supprimer cette semaine">
     <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+  </button>
+  <button class="icon-btn" id="gear" aria-label="Paramètres">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
 
@@ -121,6 +138,21 @@
     <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
   </button>
 </nav>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <h2 id="setTitle">Paramètres</h2>
+  <section>
+    <h3>Application</h3>
+    <p id="installInfo"></p>
+    <button class="primary" id="install">Installer l'application</button>
+  </section>
+  <section>
+    <h3>Dates des plannings</h3>
+    <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
+    <button class="secondary" id="rescan">Relancer la détection</button>
+  </section>
+  <button class="secondary" id="closeSet">Fermer</button>
+</dialog>
 
 <input type="file" id="file" accept="image/*" multiple hidden>
 <div id="toast" role="status"></div>
@@ -369,6 +401,37 @@
       }
     } finally { scanning = false; }
   }
+
+  /* ---------- Paramètres + installation ---------- */
+  const dlg = $('#settings');
+  let deferred = null;
+  const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  function updateInstall() {
+    const b = $('#install'), i = $('#installInfo');
+    if (isInstalled()) {
+      b.hidden = true; i.textContent = "L'application est déjà installée sur cet appareil.";
+    } else if (deferred) {
+      b.hidden = false; i.textContent = "Ajoute Mes horaires à ton écran d'accueil pour l'ouvrir en un tap, comme une vraie application.";
+    } else {
+      b.hidden = true; i.textContent = "Dans Chrome, ouvre le menu ⋮ puis « Installer l'application » (ou « Ajouter à l'écran d'accueil »).";
+    }
+  }
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; updateInstall(); });
+  window.addEventListener('appinstalled', () => { deferred = null; updateInstall(); toast('Application installée'); });
+  $('#install').onclick = async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice;
+    deferred = null; updateInstall();
+  };
+  $('#gear').onclick = () => { updateInstall(); dlg.showModal(); };
+  $('#closeSet').onclick = () => dlg.close();
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  $('#rescan').onclick = async () => {
+    for (const it of items) if (!it.custom) { it.scanned = false; await put(it); }
+    dlg.close(); scanPending();
+  };
+  updateInstall();
 
   /* ---------- Démarrage ---------- */
   (async () => {
