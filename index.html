@@ -158,13 +158,13 @@
   let url = null;
 
   const fmtDate = ts => new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  const toast = msg => {
+  const toast = (msg, ms = 2200) => {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2200);
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms);
   };
 
   async function refresh(selectId) {
-    items = (await getAll()).sort((a, b) => b.added - a.added);
+    items = (await getAll()).sort((a, b) => (b.start ?? b.added) - (a.start ?? a.added));
     if (selectId != null) currentId = selectId;
     if (!items.some(i => i.id === currentId)) currentId = items.length ? items[0].id : null;
     render();
@@ -210,7 +210,7 @@
       lastId = await put({ blob: f, label: 'Planning du ' + fmtDate(when), added: Date.now() + n });
       n++;
     }
-    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); }
+    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); scanPending(); }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -220,7 +220,7 @@
   btnRename.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
     const v = prompt('Nom de ce planning', cur.label);
-    if (v && v.trim()) { cur.label = v.trim().slice(0, 40); await put(cur); await refresh(cur.id); }
+    if (v && v.trim()) { cur.label = v.trim().slice(0, 40); cur.custom = true; await put(cur); await refresh(cur.id); }
   };
   btnDel.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
@@ -302,6 +302,69 @@
     if (files.length) await addFiles(files);
   }
 
+
+  /* ---------- Détection automatique des dates (OCR) ---------- */
+  let workerP = null, scanning = false;
+  const loadScript = src => new Promise((res, rej) => {
+    const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = rej; document.head.appendChild(el);
+  });
+  const getWorker = () => {
+    if (!workerP) workerP = (async () => {
+      if (!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+      return Tesseract.createWorker('eng');
+    })().catch(e => { workerP = null; throw e; });
+    return workerP;
+  };
+  async function prepare(blob) {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.max(1, Math.min(4, 1800 / bmp.width));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const x = c.getContext('2d');
+    x.imageSmoothingQuality = 'high';
+    x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(bmp, 0, 0, c.width, c.height);
+    return c;
+  }
+  function parseRange(text) {
+    const re = /(\d{1,2})\s*[\/\\|]\s*(\d{1,2})\s*[\/\\|]\s*(\d{4})/g;
+    const found = []; let m;
+    while ((m = re.exec(text)) && found.length < 2) {
+      const d = +m[1], mo = +m[2], y = +m[3];
+      if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) found.push({ d, mo, y });
+    }
+    if (!found.length) return null;
+    const f = n => String(n).padStart(2, '0');
+    const [a, b] = found;
+    return {
+      label: b ? `Planning du ${f(a.d)}/${f(a.mo)} au ${f(b.d)}/${f(b.mo)}` : `Planning du ${f(a.d)}/${f(a.mo)}`,
+      start: new Date(a.y, a.mo - 1, a.d).getTime()
+    };
+  }
+  async function scanPending() {
+    if (scanning) return;
+    scanning = true;
+    try {
+      for (const it of items.filter(i => !i.scanned)) {
+        let data;
+        try {
+          toast('Lecture des dates…', 60000);
+          const w = await getWorker();
+          data = (await w.recognize(await prepare(it.blob))).data;
+        } catch (e) {
+          toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
+          return;
+        }
+        const r = parseRange(data.text || '');
+        it.scanned = true;
+        if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
+        await put(it);
+        await refresh();
+        toast(r ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
+      }
+    } finally { scanning = false; }
+  }
+
   /* ---------- Démarrage ---------- */
   (async () => {
     await refresh();
@@ -309,6 +372,7 @@
       history.replaceState(null, '', location.pathname);
       await importShared();
     }
+    scanPending();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   })();
 
