@@ -10,14 +10,53 @@
   "theme_color": "#0f1115",
   "lang": "fr",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "share_target": {
     "action": "./share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
-    "params": { "files": [ { "name": "image", "accept": ["image/*"] } ] }
-  }
+    "params": {
+      "files": [
+        {
+          "name": "image",
+          "accept": [
+            "image/*"
+          ]
+        }
+      ]
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Ajouter une capture",
+      "short_name": "Ajouter",
+      "description": "Ajouter la capture d'un nouveau planning",
+      "url": "./?add=1",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }

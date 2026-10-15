@@ -93,7 +93,7 @@
   dialog {
     border: 0; background: var(--panel); color: var(--text);
     border-radius: 20px 20px 0 0; width: 100%; max-width: 520px;
-    margin: auto auto 0; padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+    margin: auto auto 0; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)); max-height: 92vh; overflow: auto;
   }
   dialog::backdrop { background: rgba(0,0,0,.6); }
   dialog h2 { margin: 0 0 16px; font-size: 1.15rem; }
@@ -104,6 +104,8 @@
   .secondary:active { background: var(--line); }
   dialog .primary[hidden] { display: none; }
   dialog > .secondary { width: 100%; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  #addDlg .primary { width: 100%; margin-bottom: 10px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 </style>
@@ -147,6 +149,14 @@
     <button class="primary" id="install">Installer l'application</button>
   </section>
   <section>
+    <h3>Sauvegarde</h3>
+    <p>Enregistre toutes tes captures dans un fichier (à garder dans Drive, par exemple) pour les retrouver si le téléphone efface les données du navigateur.</p>
+    <div class="row">
+      <button class="secondary" id="export">Exporter</button>
+      <button class="secondary" id="import">Importer</button>
+    </div>
+  </section>
+  <section>
     <h3>Dates des plannings</h3>
     <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
     <button class="secondary" id="rescan">Relancer la détection</button>
@@ -154,6 +164,14 @@
   <button class="secondary" id="closeSet">Fermer</button>
 </dialog>
 
+<dialog id="addDlg" aria-labelledby="addTitle">
+  <h2 id="addTitle">Ajouter une capture</h2>
+  <p>Choisis la capture de ton planning dans ta galerie.</p>
+  <button class="primary" id="addGo">Choisir une capture</button>
+  <button class="secondary" id="addCancel">Annuler</button>
+</dialog>
+
+<input type="file" id="backupFile" accept="application/json,.json" hidden>
 <input type="file" id="file" accept="image/*" multiple hidden>
 <div id="toast" role="status"></div>
 
@@ -264,12 +282,13 @@
     if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
   };
 
-  /* ---------- Zoom / déplacement (pincer, glisser, double tap) ---------- */
+  /* ---------- Zoom (vers les doigts), déplacement, double tap, glisser pour changer de semaine ---------- */
   let sc = 1, px = 0, py = 0;
   const pts = new Map();
-  let g = null, lastTap = 0, moved = false;
+  let g = null, lastTap = 0, moved = false, swiping = false, swipeDx = 0, swipeDy = 0;
 
-  const apply = () => { img.style.transform = `translate(${px}px, ${py}px) scale(${sc})`; };
+  const apply = (extra = 0) => { img.style.transform = `translate(${px + extra}px, ${py}px) scale(${sc})`; };
+  const centre = () => { const r = stage.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
   function clamp() {
     if (sc <= 1) { sc = 1; px = py = 0; return; }
     const r = stage.getBoundingClientRect();
@@ -279,6 +298,13 @@
     py = Math.min(my, Math.max(-my, py));
   }
   function resetZoom() { sc = 1; px = py = 0; apply(); }
+  // Zoome en gardant le point (cx, cy) de l'écran fixe sous le doigt
+  function zoomAt(cx, cy, s1) {
+    const c = centre(), ux = cx - c.x, uy = cy - c.y;
+    px = ux - s1 * (ux - px) / sc;
+    py = uy - s1 * (uy - py) / sc;
+    sc = s1; clamp(); apply();
+  }
   const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
   const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
   const snap = () => ({
@@ -286,6 +312,16 @@
     d: pts.size === 2 ? dist() : 0,
     m: pts.size === 2 ? mid() : [...pts.values()][0] || { x: 0, y: 0 }
   });
+  function snapBack() {
+    img.style.transition = 'transform .15s';
+    apply();
+    setTimeout(() => { img.style.transition = ''; }, 170);
+  }
+  function go(d) {
+    const i = items.findIndex(x => x.id === currentId), n = items[i + d];
+    if (!n) return false;
+    currentId = n.id; render(); return true;
+  }
 
   stage.addEventListener('pointerdown', e => {
     if (img.hidden) return;
@@ -297,22 +333,39 @@
     if (!pts.has(e.pointerId) || !g) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const m = pts.size === 2 ? mid() : [...pts.values()][0];
-    if (Math.hypot(m.x - g.m.x, m.y - g.m.y) > 6) moved = true;
-    if (pts.size === 2 && g.d) {
-      sc = Math.min(6, Math.max(1, g.sc * dist() / g.d));
-      moved = true;
+    const dx = m.x - g.m.x, dy = m.y - g.m.y;
+    if (Math.hypot(dx, dy) > 6) moved = true;
+
+    // Image non zoomée + un doigt : on glisse pour changer de semaine
+    if (pts.size === 1 && g.sc <= 1) {
+      swiping = true; swipeDx = dx; swipeDy = dy;
+      apply(dx * 0.6);
+      return;
     }
-    px = g.px + (m.x - g.m.x);
-    py = g.py + (m.y - g.m.y);
-    clamp(); apply();
+    swiping = false;
+    let s1 = g.sc;
+    if (pts.size === 2 && g.d) { s1 = Math.min(6, Math.max(1, g.sc * dist() / g.d)); moved = true; }
+    const c = centre();
+    px = (m.x - c.x) - s1 * ((g.m.x - c.x) - g.px) / g.sc;
+    py = (m.y - c.y) - s1 * ((g.m.y - c.y) - g.py) / g.sc;
+    sc = s1; clamp(); apply();
   });
   const end = e => {
     if (!pts.has(e.pointerId)) return;
     pts.delete(e.pointerId);
-    if (pts.size === 0 && !moved && e.type === 'pointerup') {
-      const now = Date.now();
-      if (now - lastTap < 300) { sc = sc > 1 ? 1 : 2.5; px = py = 0; clamp(); apply(); lastTap = 0; }
-      else lastTap = now;
+    if (pts.size === 0) {
+      if (swiping) {
+        swiping = false;
+        const dx = swipeDx, dy = swipeDy; swipeDx = swipeDy = 0;
+        const ok = e.type === 'pointerup' && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5;
+        if (!(ok && go(dx < 0 ? 1 : -1))) snapBack();
+      } else if (!moved && e.type === 'pointerup') {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          if (sc > 1) { sc = 1; px = py = 0; apply(); } else zoomAt(e.clientX, e.clientY, 2.5);
+          lastTap = 0;
+        } else lastTap = now;
+      }
     }
     g = pts.size ? snap() : null;
   };
@@ -320,9 +373,14 @@
   stage.addEventListener('pointercancel', end);
   stage.addEventListener('wheel', e => {
     if (img.hidden) return; e.preventDefault();
-    sc = Math.min(6, Math.max(1, sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); clamp(); apply();
+    zoomAt(e.clientX, e.clientY, Math.min(6, Math.max(1, sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
   }, { passive: false });
   window.addEventListener('resize', () => { clamp(); apply(); });
+  document.addEventListener('keydown', e => {
+    if (document.querySelector('dialog[open]')) return;
+    if (e.key === 'ArrowLeft') go(-1);
+    if (e.key === 'ArrowRight') go(1);
+  });
 
   /* ---------- Images reçues via « Partager » ---------- */
   async function importShared() {
@@ -433,12 +491,63 @@
   };
   updateInstall();
 
+  /* ---------- Sauvegarde : exporter / importer ---------- */
+  const toDataURL = blob => new Promise((res, rej) => {
+    const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob);
+  });
+  $('#export').onclick = async () => {
+    if (!items.length) return toast('Rien à sauvegarder');
+    const out = [];
+    for (const it of items) {
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, data: await toDataURL(it.blob) });
+    }
+    const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'horaires-sauvegarde-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast(items.length > 1 ? items.length + ' plannings sauvegardés' : '1 planning sauvegardé');
+  };
+  $('#import').onclick = () => $('#backupFile').click();
+  $('#backupFile').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      if (j.app !== 'horaires' || !Array.isArray(j.items)) throw new Error('format');
+      const have = new Set(items.map(i => i.added + '|' + i.blob.size));
+      let n = 0, lastId = null;
+      for (const o of j.items) {
+        const blob = await (await fetch(o.data)).blob();
+        if (have.has(o.added + '|' + blob.size)) continue;
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned });
+        n++;
+      }
+      await refresh(lastId);
+      dlg.close();
+      toast(n ? (n > 1 ? n + ' plannings restaurés' : '1 planning restauré') : 'Tout était déjà là');
+    } catch (err) {
+      toast('Fichier de sauvegarde invalide', 3000);
+    }
+  };
+
+  /* ---------- Raccourci « Ajouter une capture » (appui long sur l'icône) ---------- */
+  const addDlg = $('#addDlg');
+  $('#addGo').onclick = () => { addDlg.close(); fileInput.click(); };
+  $('#addCancel').onclick = () => addDlg.close();
+  addDlg.addEventListener('click', e => { if (e.target === addDlg) addDlg.close(); });
+
   /* ---------- Démarrage ---------- */
   (async () => {
     await refresh();
     if (location.search.includes('shared')) {
       history.replaceState(null, '', location.pathname);
       await importShared();
+    }
+    if (location.search.includes('add=1')) {
+      history.replaceState(null, '', location.pathname);
+      addDlg.showModal();
     }
     scanPending();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
