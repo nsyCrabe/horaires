@@ -55,13 +55,6 @@
   .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; }
   .today .t2 { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
   .today.rest .t2 { color: var(--muted); }
-  .today .sh { display: block; }
-  .today .sh + .sh { margin-top: 10px; }
-  .today .sl { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
-  .today .tag { font-size: .85rem; font-weight: 600; color: var(--muted); }
-  .today .tm { font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
-  .today .sh.multi .tm { font-size: 1.5rem; }
-  .today .pz { display: block; font-size: .85rem; color: var(--muted); margin-top: 1px; }
 
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
@@ -274,38 +267,50 @@
     const d = new Date(cur.start); d.setDate(d.getDate() + idx);
     return cur.rows[d.getDate()] ? idx : null;
   }
-  async function buildSrc(cur) {
-    const COLOR_TODAY = '#8ec5ff';   // couleur du jour d'aujourd'hui
-    const todayIdx = highlightDay(cur);
-    const bands = [];
-    if (cur.rows && cur.start != null) {
-      const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
-      const ctr = q => (q.y0 + q.y1) / 2;
-      for (let i = 0; i < 7; i++) {
-        const r = cur.rows[dayOf(i)];
-        if (!r) continue;
-        const color = i === todayIdx ? COLOR_TODAY : null;
-        if (!color) continue;
-        const h = r.y1 - r.y0, me = ctr(r);
-        const prev = i > 0 ? cur.rows[dayOf(i - 1)] : null, next = i < 6 ? cur.rows[dayOf(i + 1)] : null;
-        bands.push({
-          color,
-          top: prev ? (ctr(prev) + me) / 2 : me - h * 0.9,
-          bottom: next ? (me + ctr(next)) / 2 : me + h * 0.9
-        });
+  // Les images (surlignées ou non) sont gardées en mémoire : revenir sur une semaine est instantané
+  const srcCache = new Map();   // clé → { p: promesse de l'adresse de l'image, url }
+  function cacheKey(cur) {
+    const idx = highlightDay(cur);
+    return cur.id + '|' + (idx == null ? 'n' : idx + '|' + JSON.stringify(cur.rows));
+  }
+  function buildSrc(cur) {
+    const key = cacheKey(cur);
+    let e = srcCache.get(key);
+    if (!e) {
+      e = { p: drawSrc(cur), url: null };
+      e.p.then(u => { e.url = u; });
+      srcCache.set(key, e);
+      while (srcCache.size > 12) {   // on garde les 12 plus récentes
+        const [k, old] = srcCache.entries().next().value;
+        if (k === key || (old.url && old.url === url)) { srcCache.delete(k); srcCache.set(k, old); continue; }
+        if (old.url) URL.revokeObjectURL(old.url);
+        srcCache.delete(k);
       }
     }
-    if (!bands.length) return URL.createObjectURL(cur.blob);
+    return e.p;
+  }
+  function dropCache(id) {
+    for (const [k, e] of [...srcCache]) {
+      if (k.startsWith(id + '|')) { if (e.url) URL.revokeObjectURL(e.url); srcCache.delete(k); }
+    }
+  }
+  async function drawSrc(cur) {
+    const idx = highlightDay(cur);
+    if (idx == null) return URL.createObjectURL(cur.blob);
     try {
+      const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
+      const R = cur.rows, r = R[dayOf(idx)];
+      const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
+      const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
+      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.9;
+      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.9;
       const bmp = await createImageBitmap(cur.blob);
       const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
       const x = c.getContext('2d');
       x.drawImage(bmp, 0, 0);
       x.globalCompositeOperation = 'multiply';
-      for (const b of bands) {
-        x.fillStyle = b.color;
-        x.fillRect(0, b.top * c.height, c.width, (b.bottom - b.top) * c.height);
-      }
+      x.fillStyle = '#8ec5ff';
+      x.fillRect(0, top * c.height, c.width, (bottom - top) * c.height);
       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
       return URL.createObjectURL(blob);
     } catch (e) { return URL.createObjectURL(cur.blob); }
@@ -314,16 +319,12 @@
   // Horaire du jour, lu dans le texte de la ligne (« 16:30-19:30 », « Repos »)
   function parseDay(text) {
     const t = text || '';
-    if (/repos/i.test(t)) return { rest: true, label: 'Repos', shifts: [] };
-    // plages « 10:00-13:00 » et pauses « 09mn » : chaque pause va avec la plage qui la précède
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})|([\dOo]{1,2})\s*(?:mn|min|rnn|rn|mm|nn)\b/gi;
+    if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
     const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
-    const shifts = []; let m;
-    while ((m = re.exec(t))) {
-      if (m[1] !== undefined) shifts.push({ start: f(m[1], m[2]), end: f(m[3], m[4]), hour: +m[1], pause: null });
-      else if (shifts.length && shifts[shifts.length - 1].pause == null) shifts[shifts.length - 1].pause = +m[5].replace(/[Oo]/g, '0');
-    }
-    return shifts.length ? { rest: false, shifts, label: shifts.map(x => x.start + ' – ' + x.end).join('   ·   ') } : null;
+    const out = []; let m;
+    while ((m = re.exec(t))) out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
+    return out.length ? { rest: false, label: out.join('   ·   ') } : null;
   }
   function todayInfo() {
     const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
@@ -342,24 +343,7 @@
     const el = $('#today'), ti = todayInfo();
     if (!ti || !ti.parsed) { el.hidden = true; return; }
     $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    const box = $('#todayValue');
-    box.replaceChildren();
-    const mk = (tag, cls, txt) => { const e = document.createElement(tag); e.className = cls; e.textContent = txt; return e; };
-    if (ti.parsed.rest) {
-      box.className = 't2'; box.textContent = 'Repos';
-    } else {
-      box.className = '';
-      const multi = ti.parsed.shifts.length > 1;
-      for (const sh of ti.parsed.shifts) {
-        const d = mk('span', 'sh' + (multi ? ' multi' : ''), '');
-        const line = mk('span', 'sl', '');
-        if (multi) line.appendChild(mk('span', 'tag', (sh.hour < 12 ? 'Matin' : 'Après-midi') + ' :'));
-        line.appendChild(mk('span', 'tm', sh.start + ' – ' + sh.end));
-        d.appendChild(line);
-        if (sh.pause != null) d.appendChild(mk('span', 'pz', 'Pause : ' + sh.pause + ' min'));
-        box.appendChild(d);
-      }
-    }
+    $('#todayValue').textContent = ti.parsed.label;
     el.classList.toggle('rest', ti.parsed.rest);
     el.hidden = false;
   }
@@ -380,6 +364,7 @@
       currentId = cur ? cur.id : (items.length ? items[items.length - 1].id : null);
     }
     render();
+    items.filter(it => highlightDay(it) != null).forEach(buildSrc);   // prépare la semaine en cours
   }
 
   function render(dir = 0) {
@@ -408,9 +393,10 @@
       img.hidden = true; // réaffiché au chargement pour éviter un flash
       const token = ++renderToken;
       buildSrc(cur).then(u => {
-        if (token !== renderToken) { URL.revokeObjectURL(u); return; }
-        if (url) URL.revokeObjectURL(url);
-        url = u; img.src = u;
+        if (token !== renderToken) return;
+        url = u;
+        if (img.getAttribute('src') === u && img.complete && img.naturalWidth) img.onload();   // même image : pas de rechargement
+        else img.src = u;
       });
       img.onload = () => {
         img.hidden = false; resetZoom();
@@ -427,7 +413,7 @@
       btnRename.hidden = btnDel.hidden = false;
     } else {
       ++renderToken;
-      if (url) { URL.revokeObjectURL(url); url = null; }
+      url = null;
       img.hidden = true; img.removeAttribute('src');
       empty.hidden = false;
       title.textContent = 'Mes horaires';
@@ -458,7 +444,7 @@
   };
   btnDel.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
-    if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
+    if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
   };
 
   /* ---------- Zoom (vers les doigts), déplacement, double tap, glisser pour changer de semaine ---------- */
@@ -640,19 +626,14 @@
       if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
       rows[n] = { y0: w.bbox.y0 / H, y1: w.bbox.y1 / H };
     }
-    // Texte de chaque ligne : tous les mots dont le centre tombe dans la bande de cette ligne
+    // Texte de chaque ligne : tous les mots situés à la même hauteur que le numéro du jour
     if (Object.keys(rows).length) {
       const all = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
-      const keys = Object.keys(rows).sort((x, y) => rows[x].y0 - rows[y].y0);
-      const cen = n => (rows[n].y0 + rows[n].y1) / 2 * H;
-      keys.forEach((n, i) => {
-        const r = rows[n], cy = cen(n), h = (r.y1 - r.y0) * H;
-        let top = i > 0 ? (cen(keys[i - 1]) + cy) / 2 : cy - h * 1.2;
-        let bottom = i < keys.length - 1 ? (cy + cen(keys[i + 1])) / 2 : cy + h * 1.2;
-        top = Math.max(top, cy - h); bottom = Math.min(bottom, cy + h);   // ne pas déborder sur une ligne non repérée
-        r.text = all.filter(w => { const c = (w.bbox.y0 + w.bbox.y1) / 2; return c >= top && c <= bottom; })
-          .sort((x, y) => x.bbox.x0 - y.bbox.x0).map(w => w.text.trim()).join(' ');
-      });
+      for (const n of Object.keys(rows)) {
+        const r = rows[n], cy = (r.y0 + r.y1) / 2 * H, tol = (r.y1 - r.y0) * H * 0.7;
+        r.text = all.filter(w => Math.abs((w.bbox.y0 + w.bbox.y1) / 2 - cy) <= tol)
+          .sort((a, b) => a.bbox.x0 - b.bbox.x0).map(w => w.text.trim()).join(' ');
+      }
     }
     // 2) en secours : lignes qui commencent par « lettre + numéro »
     if (!Object.keys(rows).length) {
@@ -673,7 +654,7 @@
     scanning = true;
     try {
       const OUT = { text: true, blocks: true, tsv: true };
-      for (const it of items.filter(i => !i.scanned || i.rowsV !== 4)) {
+      for (const it of items.filter(i => !i.scanned || i.rowsV !== 3)) {
         const first = !it.scanned;
         let r, rows = null;
         try {
@@ -698,7 +679,7 @@
           if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
           return;
         }
-        it.scanned = true; it.rowsV = 4;
+        it.scanned = true; it.rowsV = 3;
         if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
         if (rows) it.rows = rows; else delete it.rows;
         await put(it);
@@ -710,7 +691,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v16 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v15 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -740,7 +721,7 @@
       ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
       : 'Lignes des jours non repérées sur ce planning.');
     const ti = todayInfo();
-    if (ti) info += ` Texte lu pour aujourd'hui : « ${ti.row.text || ''} ».`;
+    if (ti) info += ti.parsed ? ` Horaire d'aujourd'hui lu : ${ti.parsed.label}.` : ` Horaire d'aujourd'hui illisible (texte lu : « ${ti.row.text || ''} »).`;
     $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
@@ -803,7 +784,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 4 ? 4 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 3 ? 3 : 0 });
         n++;
       }
       await refresh(lastId);
