@@ -263,7 +263,7 @@
       const x = c.getContext('2d');
       x.drawImage(bmp, 0, 0);
       x.globalCompositeOperation = 'multiply';
-      x.fillStyle = '#4d8cff';
+      x.fillStyle = '#8ec5ff';
       x.fillRect(0, top * c.height, c.width, (bottom - top) * c.height);
       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
       return URL.createObjectURL(blob);
