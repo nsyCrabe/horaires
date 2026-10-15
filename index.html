@@ -275,7 +275,7 @@
     return cur.rows[d.getDate()] ? idx : null;
   }
   async function buildSrc(cur) {
-    const COLOR_TODAY = '#8ec5ff', COLOR_REST = '#ff9b9b';   // bleu : jour d'aujourd'hui · rouge : jours de repos
+    const COLOR_TODAY = '#8ec5ff';   // couleur du jour d'aujourd'hui
     const todayIdx = highlightDay(cur);
     const bands = [];
     if (cur.rows && cur.start != null) {
@@ -284,7 +284,7 @@
       for (let i = 0; i < 7; i++) {
         const r = cur.rows[dayOf(i)];
         if (!r) continue;
-        const color = i === todayIdx ? COLOR_TODAY : (/repos/i.test(r.text || '') ? COLOR_REST : null);
+        const color = i === todayIdx ? COLOR_TODAY : null;
         if (!color) continue;
         const h = r.y1 - r.y0, me = ctr(r);
         const prev = i > 0 ? cur.rows[dayOf(i - 1)] : null, next = i < 6 ? cur.rows[dayOf(i + 1)] : null;
@@ -316,12 +316,12 @@
     const t = text || '';
     if (/repos/i.test(t)) return { rest: true, label: 'Repos', shifts: [] };
     // plages « 10:00-13:00 » et pauses « 09mn » : chaque pause va avec la plage qui la précède
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})|(\d{1,2})\s*(?:mn|min|rnn|rn|mm)\b/gi;
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})|([\dOo]{1,2})\s*(?:mn|min|rnn|rn|mm|nn)\b/gi;
     const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
     const shifts = []; let m;
     while ((m = re.exec(t))) {
       if (m[1] !== undefined) shifts.push({ start: f(m[1], m[2]), end: f(m[3], m[4]), hour: +m[1], pause: null });
-      else if (shifts.length && shifts[shifts.length - 1].pause == null) shifts[shifts.length - 1].pause = +m[5];
+      else if (shifts.length && shifts[shifts.length - 1].pause == null) shifts[shifts.length - 1].pause = +m[5].replace(/[Oo]/g, '0');
     }
     return shifts.length ? { rest: false, shifts, label: shifts.map(x => x.start + ' – ' + x.end).join('   ·   ') } : null;
   }
@@ -640,14 +640,19 @@
       if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
       rows[n] = { y0: w.bbox.y0 / H, y1: w.bbox.y1 / H };
     }
-    // Texte de chaque ligne : tous les mots situés à la même hauteur que le numéro du jour
+    // Texte de chaque ligne : tous les mots dont le centre tombe dans la bande de cette ligne
     if (Object.keys(rows).length) {
       const all = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
-      for (const n of Object.keys(rows)) {
-        const r = rows[n], cy = (r.y0 + r.y1) / 2 * H, tol = (r.y1 - r.y0) * H * 0.7;
-        r.text = all.filter(w => Math.abs((w.bbox.y0 + w.bbox.y1) / 2 - cy) <= tol)
-          .sort((a, b) => a.bbox.x0 - b.bbox.x0).map(w => w.text.trim()).join(' ');
-      }
+      const keys = Object.keys(rows).sort((x, y) => rows[x].y0 - rows[y].y0);
+      const cen = n => (rows[n].y0 + rows[n].y1) / 2 * H;
+      keys.forEach((n, i) => {
+        const r = rows[n], cy = cen(n), h = (r.y1 - r.y0) * H;
+        let top = i > 0 ? (cen(keys[i - 1]) + cy) / 2 : cy - h * 1.2;
+        let bottom = i < keys.length - 1 ? (cy + cen(keys[i + 1])) / 2 : cy + h * 1.2;
+        top = Math.max(top, cy - h); bottom = Math.min(bottom, cy + h);   // ne pas déborder sur une ligne non repérée
+        r.text = all.filter(w => { const c = (w.bbox.y0 + w.bbox.y1) / 2; return c >= top && c <= bottom; })
+          .sort((x, y) => x.bbox.x0 - y.bbox.x0).map(w => w.text.trim()).join(' ');
+      });
     }
     // 2) en secours : lignes qui commencent par « lettre + numéro »
     if (!Object.keys(rows).length) {
@@ -668,7 +673,7 @@
     scanning = true;
     try {
       const OUT = { text: true, blocks: true, tsv: true };
-      for (const it of items.filter(i => !i.scanned || i.rowsV !== 3)) {
+      for (const it of items.filter(i => !i.scanned || i.rowsV !== 4)) {
         const first = !it.scanned;
         let r, rows = null;
         try {
@@ -693,7 +698,7 @@
           if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
           return;
         }
-        it.scanned = true; it.rowsV = 3;
+        it.scanned = true; it.rowsV = 4;
         if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
         if (rows) it.rows = rows; else delete it.rows;
         await put(it);
@@ -705,7 +710,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v15 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v16 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -735,7 +740,7 @@
       ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
       : 'Lignes des jours non repérées sur ce planning.');
     const ti = todayInfo();
-    if (ti) info += ti.parsed ? ` Horaire d'aujourd'hui lu : ${ti.parsed.label}.` : ` Horaire d'aujourd'hui illisible (texte lu : « ${ti.row.text || ''} »).`;
+    if (ti) info += ` Texte lu pour aujourd'hui : « ${ti.row.text || ''} ».`;
     $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
@@ -798,7 +803,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 3 ? 3 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 4 ? 4 : 0 });
         n++;
       }
       await refresh(lastId);
