@@ -55,6 +55,13 @@
   .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; }
   .today .t2 { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
   .today.rest .t2 { color: var(--muted); }
+  .today .sh { display: block; }
+  .today .sh + .sh { margin-top: 10px; }
+  .today .sl { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
+  .today .tag { font-size: .85rem; font-weight: 600; color: var(--muted); }
+  .today .tm { font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
+  .today .sh.multi .tm { font-size: 1.5rem; }
+  .today .pz { display: block; font-size: .85rem; color: var(--muted); margin-top: 1px; }
 
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
@@ -268,22 +275,37 @@
     return cur.rows[d.getDate()] ? idx : null;
   }
   async function buildSrc(cur) {
-    const idx = highlightDay(cur);
-    if (idx == null) return URL.createObjectURL(cur.blob);
-    try {
+    const COLOR_TODAY = '#8ec5ff', COLOR_REST = '#ff9b9b';   // bleu : jour d'aujourd'hui · rouge : jours de repos
+    const todayIdx = highlightDay(cur);
+    const bands = [];
+    if (cur.rows && cur.start != null) {
       const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
-      const R = cur.rows, r = R[dayOf(idx)];
-      const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
-      const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
-      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.9;
-      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.9;
+      const ctr = q => (q.y0 + q.y1) / 2;
+      for (let i = 0; i < 7; i++) {
+        const r = cur.rows[dayOf(i)];
+        if (!r) continue;
+        const color = i === todayIdx ? COLOR_TODAY : (/repos/i.test(r.text || '') ? COLOR_REST : null);
+        if (!color) continue;
+        const h = r.y1 - r.y0, me = ctr(r);
+        const prev = i > 0 ? cur.rows[dayOf(i - 1)] : null, next = i < 6 ? cur.rows[dayOf(i + 1)] : null;
+        bands.push({
+          color,
+          top: prev ? (ctr(prev) + me) / 2 : me - h * 0.9,
+          bottom: next ? (me + ctr(next)) / 2 : me + h * 0.9
+        });
+      }
+    }
+    if (!bands.length) return URL.createObjectURL(cur.blob);
+    try {
       const bmp = await createImageBitmap(cur.blob);
       const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
       const x = c.getContext('2d');
       x.drawImage(bmp, 0, 0);
       x.globalCompositeOperation = 'multiply';
-      x.fillStyle = '#8ec5ff';
-      x.fillRect(0, top * c.height, c.width, (bottom - top) * c.height);
+      for (const b of bands) {
+        x.fillStyle = b.color;
+        x.fillRect(0, b.top * c.height, c.width, (b.bottom - b.top) * c.height);
+      }
       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
       return URL.createObjectURL(blob);
     } catch (e) { return URL.createObjectURL(cur.blob); }
@@ -292,12 +314,16 @@
   // Horaire du jour, lu dans le texte de la ligne (« 16:30-19:30 », « Repos »)
   function parseDay(text) {
     const t = text || '';
-    if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
+    if (/repos/i.test(t)) return { rest: true, label: 'Repos', shifts: [] };
+    // plages « 10:00-13:00 » et pauses « 09mn » : chaque pause va avec la plage qui la précède
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})|(\d{1,2})\s*(?:mn|min|rnn|rn|mm)\b/gi;
     const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
-    const out = []; let m;
-    while ((m = re.exec(t))) out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
-    return out.length ? { rest: false, label: out.join('   ·   ') } : null;
+    const shifts = []; let m;
+    while ((m = re.exec(t))) {
+      if (m[1] !== undefined) shifts.push({ start: f(m[1], m[2]), end: f(m[3], m[4]), hour: +m[1], pause: null });
+      else if (shifts.length && shifts[shifts.length - 1].pause == null) shifts[shifts.length - 1].pause = +m[5];
+    }
+    return shifts.length ? { rest: false, shifts, label: shifts.map(x => x.start + ' – ' + x.end).join('   ·   ') } : null;
   }
   function todayInfo() {
     const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
@@ -316,7 +342,24 @@
     const el = $('#today'), ti = todayInfo();
     if (!ti || !ti.parsed) { el.hidden = true; return; }
     $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#todayValue').textContent = ti.parsed.label;
+    const box = $('#todayValue');
+    box.replaceChildren();
+    const mk = (tag, cls, txt) => { const e = document.createElement(tag); e.className = cls; e.textContent = txt; return e; };
+    if (ti.parsed.rest) {
+      box.className = 't2'; box.textContent = 'Repos';
+    } else {
+      box.className = '';
+      const multi = ti.parsed.shifts.length > 1;
+      for (const sh of ti.parsed.shifts) {
+        const d = mk('span', 'sh' + (multi ? ' multi' : ''), '');
+        const line = mk('span', 'sl', '');
+        if (multi) line.appendChild(mk('span', 'tag', (sh.hour < 12 ? 'Matin' : 'Après-midi') + ' :'));
+        line.appendChild(mk('span', 'tm', sh.start + ' – ' + sh.end));
+        d.appendChild(line);
+        if (sh.pause != null) d.appendChild(mk('span', 'pz', 'Pause : ' + sh.pause + ' min'));
+        box.appendChild(d);
+      }
+    }
     el.classList.toggle('rest', ti.parsed.rest);
     el.hidden = false;
   }
@@ -662,7 +705,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v14 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v15 · 15 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
