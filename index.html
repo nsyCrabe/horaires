@@ -322,7 +322,7 @@
   function parseDay(text) {
     const t = text || '';
     if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
+    const re = /(\d{1,2})\s*[:.hH-]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH-]\s*(\d{2})/g;
     const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
     const out = []; let m;
     while ((m = re.exec(t))) out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
@@ -628,7 +628,7 @@
     const rows = {};
     // 1) le numéro du jour, isolé ou collé à sa lettre, dans la colonne de gauche
     for (const w of ocrWords(data)) {
-      const m = /^[A-Za-z|]?(\d{1,2})$/.exec((w.text || '').trim());
+      const m = /^[^\dA-Za-z]*[A-Za-z]?[^\dA-Za-z]*(\d{1,2})$/.exec((w.text || '').trim());
       if (!m || !w.bbox) continue;
       const n = +m[1];
       if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
@@ -657,6 +657,53 @@
     for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
     return Object.keys(rows).length ? rows : null;
   }
+  // Repère les traits horizontaux du tableau (ne dépend pas de la lecture des chiffres par l'OCR)
+  function gridLines(canvas) {
+    const W = canvas.width, H = canvas.height;
+    const px = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+    const x0 = Math.floor(W * 0.04), n = Math.floor(W * 0.96) - x0;
+    const dark = new Float32Array(H);
+    for (let y = 0; y < H; y++) {
+      let c = 0, o = (y * W + x0) * 4;
+      for (let x = 0; x < n; x++, o += 4) if (px[o] * 0.3 + px[o + 1] * 0.59 + px[o + 2] * 0.11 < 150) c++;
+      dark[y] = c / n;
+    }
+    const groups = [];
+    for (let y = 0; y < H; y++) {
+      if (dark[y] <= 0.5) continue;
+      const g = groups[groups.length - 1];
+      if (g && y - g[1] <= 1) g[1] = y; else groups.push([y, y]);
+    }
+    const pos = [];
+    for (const [a, b] of groups) { if (a <= 2) continue; pos.push(b >= H - 3 ? a : (a + b) / 2); }   // marge du haut ignorée
+    const gaps = pos.slice(1).map((v, i) => v - pos[i]).sort((p, q) => p - q);
+    const med = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+    const merged = [];
+    for (const p of pos) { if (merged.length && p - merged[merged.length - 1] < med * 0.5) continue; merged.push(p); }
+    return merged;
+  }
+  // Les 7 dernières cases du tableau = lundi → dimanche
+  function rowsFromGrid(canvas, data, start) {
+    const H = canvas.height;
+    const lines = gridLines(canvas);
+    if (lines.length < 8) return null;
+    const L = lines.slice(-8);
+    const gaps = L.slice(1).map((v, i) => v - L[i]);
+    const med = [...gaps].sort((a, b) => a - b)[3];
+    if (!med || gaps.some(g => g < med * 0.6 || g > med * 1.6)) return null;   // cases irrégulières : on ne se fie pas à ce repérage
+    const words = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
+    const rows = {};
+    for (let i = 0; i < 7; i++) {
+      const top = L[i], bot = L[i + 1], pitch = bot - top;
+      const d = new Date(start); d.setDate(d.getDate() + i);
+      rows[d.getDate()] = {
+        y0: (top + pitch * 0.2) / H, y1: (bot - pitch * 0.2) / H,
+        text: words.filter(w => { const c = (w.bbox.y0 + w.bbox.y1) / 2; return c >= top && c <= bot; })
+          .sort((a, b) => a.bbox.x0 - b.bbox.x0).map(w => w.text.trim()).join(' ')
+      };
+    }
+    return rows;
+  }
   const nbRows = it => it && it.rows ? Object.keys(it.rows).length : 0;
 
   // Lit un planning : dates + lignes des jours. Ne remplace jamais un bon résultat par un moins bon.
@@ -674,27 +721,34 @@
     let r, rows = null, okR = false;
     try {
       const canvas = await prepare(stale.blob);
-      await w.setParameters({ tessedit_pageseg_mode: '3' });
-      const data = (await w.recognize(canvas, {}, OUT)).data;
+      const pass = async mode => {
+        await w.setParameters({ tessedit_pageseg_mode: mode });
+        return (await w.recognize(canvas, {}, OUT)).data;
+      };
+      const data = await pass('3');
+      let data2 = null;
       r = parseRange(data.text || '');
+      if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }   // la ligne des dates est parfois mieux lue dans ce mode
       okR = !!r && (!r.suspect || stale.start == null);   // une date douteuse ne remplace pas une date déjà connue
       const start = okR ? r.start : stale.start;
       if (start != null) {
-        rows = parseRows(data, canvas.height, canvas.width, start);
-        if (!rows || Object.keys(rows).length < 7) {   // 2e essai : lecture « bloc de texte »
-          await w.setParameters({ tessedit_pageseg_mode: '6' });
-          const d2 = (await w.recognize(canvas, {}, OUT)).data;
-          const rows2 = parseRows(d2, canvas.height, canvas.width, start);
-          if (rows2 && (!rows || Object.keys(rows2).length > Object.keys(rows).length)) rows = rows2;
-          await w.setParameters({ tessedit_pageseg_mode: '3' });
+        rows = rowsFromGrid(canvas, data, start);   // 1) les traits du tableau
+        if (!rows) {                                // 2) en secours : numéros des jours lus par l'OCR
+          rows = parseRows(data, canvas.height, canvas.width, start);
+          if (!rows || Object.keys(rows).length < 7) {
+            if (!data2) data2 = await pass('6');
+            const rows2 = parseRows(data2, canvas.height, canvas.width, start);
+            if (rows2 && (!rows || Object.keys(rows2).length > Object.keys(rows).length)) rows = rows2;
+          }
         }
       }
+      await w.setParameters({ tessedit_pageseg_mode: '3' });
     } catch (e) {
       return { failed: true };   // ce planning-là a échoué : on passe aux suivants
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
-    it.scanned = true; it.rowsV = 3;
+    it.scanned = true; it.rowsV = 4;
     if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
@@ -714,7 +768,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 3)
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 4)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -728,7 +782,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v16 · 19 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v17 · 19 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -824,7 +878,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 3 ? 3 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 4 ? 4 : 0 });
         n++;
       }
       await refresh(lastId);
