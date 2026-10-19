@@ -738,7 +738,7 @@
       if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
       return { fatal: true };
     }
-    let r, rows = null, okR = false, dbg = '';
+    let r, rows = null, okR = false, dbg = '', rawText = '';
     try {
       const canvas = await prepare(stale.blob);
       const pass = async mode => {
@@ -775,14 +775,19 @@
       }
       dbg = `${ocrWords(data).length} mots, ${ocrLines(data).length} lignes, ${(data.text || '').length} caractères, `
         + `${rows ? Object.keys(rows).length : 0} cases dont ${rows ? Object.values(rows).filter(x => x.text).length : 0} avec texte`;
-      try { localStorage.setItem('ocrDebug', dbg); } catch (e) {}
+      rawText = data.text || '';
       await w.setParameters({ tessedit_pageseg_mode: '3' });
     } catch (e) {
+      try {   // on garde la raison de l'échec pour l'afficher dans les paramètres
+        const f = await getOne(stale.id);
+        if (f) { f.dbg = 'erreur : ' + ((e && e.message) || e); await put(f); }
+      } catch (e2) {}
       return { failed: true };   // ce planning-là a échoué : on passe aux suivants
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
-    it.scanned = true; it.rowsV = 6;
+    it.scanned = true; it.rowsV = 7;
+    it.dbg = dbg; it.dbgText = rawText.slice(0, 700);
     if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
@@ -802,7 +807,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 6)
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 7)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -816,7 +821,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v19 · 19 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v20 · 19 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -844,13 +849,14 @@
     const cur = items.find(i => i.id === currentId);
     let info = items.length ? 'Lignes repérées par planning :\n' + items.map(it => {
       const w = weekInfo(it);
-      return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7';
+      return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7' + (it.dbg ? ' (' + it.dbg + ')' : '');
     }).join('\n') : '';
     const ti = todayInfo();
     info += '\n' + (ti
       ? (ti.parsed ? `Aujourd'hui, horaire lu : ${ti.parsed.label}.` : `Aujourd'hui, horaire illisible (texte lu : « ${ti.row.text || ''} »).`)
       : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
-    try { const d = localStorage.getItem('ocrDebug'); if (d) info += '\nDernière lecture : ' + d + '.'; } catch (e) {}
+    const target = ti ? ti.item : items.find(i => i.id === currentId);
+    if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
     $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
@@ -913,7 +919,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 6 ? 6 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
         n++;
       }
       await refresh(lastId);
