@@ -113,6 +113,7 @@
   dialog h2 { margin: 0 0 16px; font-size: 1.15rem; }
   dialog h3 { margin: 0 0 6px; font-size: .95rem; }
   dialog section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  #rowsInfo { white-space: pre-line; }
   dialog p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; font-size: .92rem; }
   .secondary { background: var(--bg); border: 1px solid var(--line); padding: 12px 18px; border-radius: 12px; font-size: .95rem; }
   .secondary:active { background: var(--line); }
@@ -228,6 +229,7 @@
   const getAll = () => tx('readonly', s => s.getAll());
   const put = item => tx('readwrite', s => s.put(item));
   const remove = id => tx('readwrite', s => s.delete(id));
+  const getOne = id => tx('readonly', s => s.get(id));
 
   /* ---------- État ---------- */
   let items = [];
@@ -564,7 +566,7 @@
 
 
   /* ---------- Détection automatique des dates (OCR) ---------- */
-  let workerP = null, scanning = false;
+  let workerP = null, scanning = false, rescanAgain = false;
   const loadScript = src => new Promise((res, rej) => {
     const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = rej; document.head.appendChild(el);
   });
@@ -596,9 +598,15 @@
     if (!found.length) return null;
     const f = n => String(n).padStart(2, '0');
     const [a, b] = found;
+    const startD = new Date(a.y, a.mo - 1, a.d);
+    let suspect = Math.abs(a.y - new Date().getFullYear()) > 1;   // année mal lue ?
+    if (b) {                                                       // la fin doit tomber 6 jours après le début
+      const end = new Date(startD); end.setDate(end.getDate() + 6);
+      if (end.getDate() !== b.d || end.getMonth() + 1 !== b.mo) suspect = true;
+    }
     return {
       label: b ? `Planning du ${f(a.d)}/${f(a.mo)} au ${f(b.d)}/${f(b.mo)}` : `Planning du ${f(a.d)}/${f(a.mo)}`,
-      start: new Date(a.y, a.mo - 1, a.d).getTime()
+      start: startD.getTime(), suspect
     };
   }
   // Mots reconnus par l'OCR (quelle que soit la forme de sortie de la bibliothèque)
@@ -649,49 +657,78 @@
     for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
     return Object.keys(rows).length ? rows : null;
   }
-  async function scanPending() {
-    if (scanning) return;
-    scanning = true;
+  const nbRows = it => it && it.rows ? Object.keys(it.rows).length : 0;
+
+  // Lit un planning : dates + lignes des jours. Ne remplace jamais un bon résultat par un moins bon.
+  async function scanOne(stale) {
+    const OUT = { text: true, blocks: true, tsv: true };
+    const first = !stale.scanned;
+    let w;
     try {
-      const OUT = { text: true, blocks: true, tsv: true };
-      for (const it of items.filter(i => !i.scanned || i.rowsV !== 3)) {
-        const first = !it.scanned;
-        let r, rows = null;
-        try {
-          if (first) toast('Lecture des dates…', 60000);
-          const w = await getWorker();
-          const canvas = await prepare(it.blob);
+      if (first) toast('Lecture des dates…', 60000);
+      w = await getWorker();
+    } catch (e) {
+      if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
+      return { fatal: true };
+    }
+    let r, rows = null, okR = false;
+    try {
+      const canvas = await prepare(stale.blob);
+      await w.setParameters({ tessedit_pageseg_mode: '3' });
+      const data = (await w.recognize(canvas, {}, OUT)).data;
+      r = parseRange(data.text || '');
+      okR = !!r && (!r.suspect || stale.start == null);   // une date douteuse ne remplace pas une date déjà connue
+      const start = okR ? r.start : stale.start;
+      if (start != null) {
+        rows = parseRows(data, canvas.height, canvas.width, start);
+        if (!rows || Object.keys(rows).length < 7) {   // 2e essai : lecture « bloc de texte »
+          await w.setParameters({ tessedit_pageseg_mode: '6' });
+          const d2 = (await w.recognize(canvas, {}, OUT)).data;
+          const rows2 = parseRows(d2, canvas.height, canvas.width, start);
+          if (rows2 && (!rows || Object.keys(rows2).length > Object.keys(rows).length)) rows = rows2;
           await w.setParameters({ tessedit_pageseg_mode: '3' });
-          const data = (await w.recognize(canvas, {}, OUT)).data;
-          r = parseRange(data.text || '');
-          const start = r ? r.start : it.start;
-          if (start != null) {
-            rows = parseRows(data, canvas.height, canvas.width, start);
-            if (!rows || Object.keys(rows).length < 7) {   // 2e essai : lecture « bloc de texte »
-              await w.setParameters({ tessedit_pageseg_mode: '6' });
-              const d2 = (await w.recognize(canvas, {}, OUT)).data;
-              const rows2 = parseRows(d2, canvas.height, canvas.width, start);
-              if (rows2 && (!rows || Object.keys(rows2).length > Object.keys(rows).length)) rows = rows2;
-              await w.setParameters({ tessedit_pageseg_mode: '3' });
-            }
-          }
-        } catch (e) {
-          if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
-          return;
         }
-        it.scanned = true; it.rowsV = 3;
-        if (r) { it.start = r.start; if (!it.custom) it.label = r.label; }
-        if (rows) it.rows = rows; else delete it.rows;
-        await put(it);
-        await refresh();
-        if (first) toast(r ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
-        else toast(rows ? `Lignes des jours repérées : ${Object.keys(rows).length}/7` : 'Lignes des jours non repérées', 3000);
       }
+    } catch (e) {
+      return { failed: true };   // ce planning-là a échoué : on passe aux suivants
+    }
+    const it = (await getOne(stale.id)) || stale;
+    const oldStart = it.start;
+    it.scanned = true; it.rowsV = 3;
+    if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
+    const startChanged = okR && oldStart != null && r.start !== oldStart;
+    if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
+    else if (startChanged) delete it.rows;
+    await put(it);
+    await refresh();
+    if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
+    return { ok: nbRows(it) > 0 };
+  }
+
+  async function scanPending() {
+    if (scanning) { rescanAgain = true; return; }   // une lecture est déjà en cours : on enchaîne juste après
+    scanning = true;
+    let total = 0, ok = 0, manual = false;
+    try {
+      do {
+        rescanAgain = false;
+        const now = Date.now(), week = 7 * 864e5;
+        const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 3)
+          .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
+        if (todo.some(i => i.scanned)) manual = true;
+        for (const it of todo) {
+          const res = await scanOne(it);
+          if (res.fatal) return;
+          total++; if (res.ok) ok++;
+        }
+      } while (rescanAgain);
     } finally { scanning = false; }
+    if (manual && total) toast(`Relecture terminée : lignes repérées sur ${ok}/${total} plannings`, 4000);
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v15 · 15 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v16 · 19 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -717,11 +754,14 @@
   $('#gear').onclick = () => {
     updateInstall();
     const cur = items.find(i => i.id === currentId);
-    let info = !cur ? '' : (cur.rows
-      ? `Lignes repérées sur ce planning : ${Object.keys(cur.rows).length}/7.` + (highlightDay(cur) != null ? " La ligne d'aujourd'hui est surlignée." : '')
-      : 'Lignes des jours non repérées sur ce planning.');
+    let info = items.length ? 'Lignes repérées par planning :\n' + items.map(it => {
+      const w = weekInfo(it);
+      return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7';
+    }).join('\n') : '';
     const ti = todayInfo();
-    if (ti) info += ti.parsed ? ` Horaire d'aujourd'hui lu : ${ti.parsed.label}.` : ` Horaire d'aujourd'hui illisible (texte lu : « ${ti.row.text || ''} »).`;
+    info += '\n' + (ti
+      ? (ti.parsed ? `Aujourd'hui, horaire lu : ${ti.parsed.label}.` : `Aujourd'hui, horaire illisible (texte lu : « ${ti.row.text || ''} »).`)
+      : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
     $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
@@ -749,7 +789,7 @@
   };
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
   $('#rescan').onclick = async () => {
-    for (const it of items) { it.rowsV = 0; if (!it.custom) it.scanned = false; await put(it); }
+    for (const it of items) { it.rowsV = 0; await put(it); }
     dlg.close(); scanPending();
   };
   updateInstall();
