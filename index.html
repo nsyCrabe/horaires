@@ -688,6 +688,20 @@
     for (const p of pos) { if (merged.length && p - merged[merged.length - 1] < med * 0.5) continue; merged.push(p); }
     return merged;
   }
+  // Texte brut de l'OCR : la ligne de chaque jour, repérée par son numéro (« L 19 … », « V_23 … »)
+  function plainByDay(text, start) {
+    const days = [];
+    for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d.getDate()); }
+    const out = {};
+    for (const raw of (text || '').split('\n')) {
+      const l = raw.trim();
+      const m = /^[^\dA-Za-z]*[A-Za-z]?[^\dA-Za-z]*(\d{1,2})(?![\d:\/])/.exec(l);
+      if (!m) continue;
+      const n = +m[1];
+      if (days.includes(n) && !out[n]) out[n] = l;
+    }
+    return out;
+  }
   // Les 7 dernières cases du tableau = lundi → dimanche
   function rowsFromGrid(canvas, data, start) {
     const H = canvas.height;
@@ -724,7 +738,7 @@
       if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
       return { fatal: true };
     }
-    let r, rows = null, okR = false;
+    let r, rows = null, okR = false, dbg = '';
     try {
       const canvas = await prepare(stale.blob);
       const pass = async mode => {
@@ -743,6 +757,13 @@
           if (!data2) data2 = await pass('6');
           rows = rowsFromGrid(canvas, data2, start) || rows;
         }
+        if (rows) {   // cases sans texte : on le prend dans le texte brut de la lecture
+          for (const d of [data, data2]) {
+            if (!d) continue;
+            const pb = plainByDay(d.text, start);
+            for (const n of Object.keys(rows)) if (!rows[n].text && pb[n]) rows[n].text = pb[n];
+          }
+        }
         if (!rows) {                                // 2) en secours : numéros des jours lus par l'OCR
           rows = parseRows(data, canvas.height, canvas.width, start);
           if (!rows || Object.keys(rows).length < 7) {
@@ -752,13 +773,16 @@
           }
         }
       }
+      dbg = `${ocrWords(data).length} mots, ${ocrLines(data).length} lignes, ${(data.text || '').length} caractères, `
+        + `${rows ? Object.keys(rows).length : 0} cases dont ${rows ? Object.values(rows).filter(x => x.text).length : 0} avec texte`;
+      try { localStorage.setItem('ocrDebug', dbg); } catch (e) {}
       await w.setParameters({ tessedit_pageseg_mode: '3' });
     } catch (e) {
       return { failed: true };   // ce planning-là a échoué : on passe aux suivants
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
-    it.scanned = true; it.rowsV = 5;
+    it.scanned = true; it.rowsV = 6;
     if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
@@ -778,7 +802,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 5)
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 6)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -792,7 +816,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v18 · 19 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v19 · 19 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -826,6 +850,7 @@
     info += '\n' + (ti
       ? (ti.parsed ? `Aujourd'hui, horaire lu : ${ti.parsed.label}.` : `Aujourd'hui, horaire illisible (texte lu : « ${ti.row.text || ''} »).`)
       : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
+    try { const d = localStorage.getItem('ocrDebug'); if (d) info += '\nDernière lecture : ' + d + '.'; } catch (e) {}
     $('#rowsInfo').textContent = info;
     dlg.showModal();
   };
@@ -888,7 +913,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 5 ? 5 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 6 ? 6 : 0 });
         n++;
       }
       await refresh(lastId);
