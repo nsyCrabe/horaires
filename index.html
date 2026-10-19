@@ -657,6 +657,12 @@
     for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
     return Object.keys(rows).length ? rows : null;
   }
+  // Morceaux de texte lus par l'OCR : les mots si la bibliothèque les donne, sinon les lignes entières
+  function ocrItems(data) {
+    const ok = x => x.bbox && (x.text || '').trim();
+    const w = ocrWords(data).filter(ok);
+    return w.length ? w : ocrLines(data).filter(ok);
+  }
   // Repère les traits horizontaux du tableau (ne dépend pas de la lecture des chiffres par l'OCR)
   function gridLines(canvas) {
     const W = canvas.width, H = canvas.height;
@@ -691,7 +697,7 @@
     const gaps = L.slice(1).map((v, i) => v - L[i]);
     const med = [...gaps].sort((a, b) => a - b)[3];
     if (!med || gaps.some(g => g < med * 0.6 || g > med * 1.6)) return null;   // cases irrégulières : on ne se fie pas à ce repérage
-    const words = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
+    const words = ocrItems(data);
     const rows = {};
     for (let i = 0; i < 7; i++) {
       const top = L[i], bot = L[i + 1], pitch = bot - top;
@@ -733,6 +739,10 @@
       const start = okR ? r.start : stale.start;
       if (start != null) {
         rows = rowsFromGrid(canvas, data, start);   // 1) les traits du tableau
+        if (rows && Object.values(rows).every(x => !x.text)) {   // cases trouvées mais aucun texte lu : autre mode de lecture
+          if (!data2) data2 = await pass('6');
+          rows = rowsFromGrid(canvas, data2, start) || rows;
+        }
         if (!rows) {                                // 2) en secours : numéros des jours lus par l'OCR
           rows = parseRows(data, canvas.height, canvas.width, start);
           if (!rows || Object.keys(rows).length < 7) {
@@ -748,7 +758,7 @@
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
-    it.scanned = true; it.rowsV = 4;
+    it.scanned = true; it.rowsV = 5;
     if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
@@ -768,7 +778,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 4)
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 5)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -782,7 +792,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v17 · 19 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v18 · 19 oct. 2026';   // à changer à chaque mise à jour
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -878,7 +888,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 4 ? 4 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 5 ? 5 : 0 });
         n++;
       }
       await refresh(lastId);
