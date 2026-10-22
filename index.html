@@ -48,18 +48,19 @@
   .icon-btn[hidden] { display: none; }
 
   .today {
-    display: flex; flex-direction: column; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 14px; text-align: left;
+    display: block; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 12px 12px; text-align: left;
     background: var(--panel); border: 1px solid var(--line); border-left: 5px solid #8ec5ff; border-radius: 16px;
-    overflow: hidden;
   }
   .today[hidden] { display: none; }
   .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; margin-bottom: 6px; }
-  .today-crop {
-    width: 100%; height: 85px; border-radius: 8px; overflow: hidden; background: #fff;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .today-crop img {
-    width: 100%; height: 100%; object-fit: contain; display: block;
+  #todayImg {
+    width: 100%;
+    height: 76px;
+    object-fit: cover;
+    object-position: left center;
+    display: block;
+    border-radius: 10px;
+    background: #fff;
   }
 
   #stage {
@@ -149,9 +150,7 @@
 
 <button class="today" id="today" hidden>
   <span class="t1" id="todayLabel"></span>
-  <div class="today-crop">
-    <img id="todayImg" alt="Extrait de la ligne d'aujourd'hui">
-  </div>
+  <img id="todayImg" alt="Horaire du jour" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
 </button>
 
 <main id="stage">
@@ -268,7 +267,6 @@
     clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms);
   };
 
-  // Ligne du jour : si aujourd'hui est dans la semaine affichée et que sa ligne a été repérée
   function highlightDay(cur) {
     if (!cur.rows || cur.start == null) return null;
     const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
@@ -277,8 +275,7 @@
     const d = new Date(cur.start); d.setDate(d.getDate() + idx);
     return cur.rows[d.getDate()] ? idx : null;
   }
-  
-  // Cache d'images
+
   const srcCache = new Map();
   function cacheKey(cur) {
     const idx = highlightDay(cur);
@@ -304,9 +301,6 @@
     for (const [k, e] of [...srcCache]) {
       if (k.startsWith(id + '|')) { if (e.url) URL.revokeObjectURL(e.url); srcCache.delete(k); }
     }
-    for (const [k, url] of [...todayCropCache]) {
-      if (k.startsWith(id + '|')) { URL.revokeObjectURL(url); todayCropCache.delete(k); }
-    }
   }
   async function drawSrc(cur) {
     const idx = highlightDay(cur);
@@ -330,35 +324,34 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
-  // Génération de l'image découpée de la ligne du jour
-  const todayCropCache = new Map();
-  async function getTodayCropUrl(ti) {
-    if (!ti || !ti.item || !ti.item.rows || ti.idx == null) return null;
-    const key = ti.item.id + '|crop|' + ti.idx;
-    if (todayCropCache.has(key)) return todayCropCache.get(key);
-
+  // Rognage ultra-précis et zoomé sur la ligne du jour
+  async function cropTodayRow(cur, idx) {
     try {
-      const dayOf = i => { const d = new Date(ti.item.start); d.setDate(d.getDate() + i); return d.getDate(); };
-      const R = ti.item.rows, r = R[dayOf(ti.idx)];
+      const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
+      const R = cur.rows, r = R[dayOf(idx)];
       const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
-      const prev = ti.idx > 0 ? R[dayOf(ti.idx - 1)] : null, next = ti.idx < 6 ? R[dayOf(ti.idx + 1)] : null;
-      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.9;
-      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.9;
+      const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
+      
+      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.5;
+      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.5;
+      const cropH = Math.max(10, (bottom - top));
 
-      const bmp = await createImageBitmap(ti.item.blob);
-      const sy = Math.max(0, top * bmp.height);
-      const sh = Math.min(bmp.height - sy, (bottom - top) * bmp.height);
-
+      const bmp = await createImageBitmap(cur.blob);
       const c = document.createElement('canvas');
-      c.width = bmp.width;
+      
+      const sy = top * bmp.height;
+      const sh = cropH * bmp.height;
+      
+      const sx = 0;
+      const sw = bmp.width * 0.82;
+
+      c.width = sw;
       c.height = sh;
       const x = c.getContext('2d');
-      x.drawImage(bmp, 0, sy, bmp.width, sh, 0, 0, bmp.width, sh);
-
+      x.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+      
       const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-      const cropUrl = URL.createObjectURL(blob);
-      todayCropCache.set(key, cropUrl);
-      return cropUrl;
+      return URL.createObjectURL(blob);
     } catch (e) {
       return null;
     }
@@ -373,21 +366,27 @@
       const d = new Date(it.start); d.setDate(d.getDate() + idx);
       const row = it.rows[d.getDate()];
       if (!row) continue;
-      return { item: it, date: today, idx, row };
+      return { item: it, date: today, idx };
     }
     return null;
   }
 
+  let cropUrl = null;
   async function updateToday() {
     const el = $('#today'), ti = todayInfo();
     if (!ti) { el.hidden = true; return; }
-
-    const cropUrl = await getTodayCropUrl(ti);
-    if (!cropUrl) { el.hidden = true; return; }
-
+    
     $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#todayImg').src = cropUrl;
-    el.hidden = false;
+    
+    const crop = await cropTodayRow(ti.item, ti.idx);
+    if (crop) {
+      if (cropUrl) URL.revokeObjectURL(cropUrl);
+      cropUrl = crop;
+      $('#todayImg').src = crop;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
   }
 
   $('#today').onclick = () => {
@@ -847,7 +846,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v22 · 22 oct. 2026';
+  const APP_VERSION = 'v20.2 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -879,7 +878,7 @@
     }).join('\n') : '';
     const ti = todayInfo();
     info += '\n' + (ti
-      ? "Ligne d'aujourd'hui détectée et affichée en haut."
+      ? `Aujourd'hui, ligne repérée sur le planning.`
       : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
     const target = ti ? ti.item : items.find(i => i.id === currentId);
     if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
