@@ -47,6 +47,18 @@
   .icon-btn.danger { color: var(--danger); }
   .icon-btn[hidden] { display: none; }
 
+  #today {
+    margin: 2px 12px 8px; padding: 12px 16px; border-radius: 16px; text-align: left; width: auto;
+    background: var(--accent); color: #fff; display: flex; flex-direction: column; gap: 2px;
+    box-shadow: 0 4px 18px rgba(76,141,255,.28);
+  }
+  #today[hidden] { display: none; }
+  #today .t1 { font-size: .78rem; font-weight: 600; opacity: .9; text-transform: capitalize; letter-spacing: .02em; }
+  #today .t2 { font-size: 1.6rem; font-weight: 750; line-height: 1.2; word-break: break-word; }
+  #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
+  #today.dim .t2 { font-size: 1rem; font-weight: 600; color: var(--muted); }
+  #today:active { filter: brightness(.92); }
+
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
@@ -131,6 +143,11 @@
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
+
+<button id="today" hidden aria-live="polite">
+  <span class="t1" id="todayDay"></span>
+  <span class="t2" id="todayHours"></span>
+</button>
 
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
@@ -303,6 +320,45 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
+  /* ---------- Bandeau « Aujourd'hui » ---------- */
+  function weekOfToday() {
+    const now = Date.now(), week = 7 * 864e5;
+    return items.find(i => i.start != null && now >= i.start && now < i.start + week) || null;
+  }
+  function todayHours(it) {
+    const idx = highlightDay(it);
+    if (idx == null) return null;
+    const d = new Date(it.start); d.setDate(d.getDate() + idx);
+    const raw = (it.rows[d.getDate()].text || '').trim();
+    if (!raw) return '';
+    // Retire le nom/numéro du jour au début (ex. « Jeu 22 »), garde le reste
+    let txt = raw.replace(/^[^\dA-Za-z]*[A-Za-z]{0,4}\.?\s*\d{1,2}(?![\d:\/hH])\s*/, '');
+    const times = txt.match(/\d{1,2}\s*[:hH]\s*\d{2}/g);
+    if (times && times.length >= 2) {
+      const f = t => t.replace(/\s+/g, '').replace(/[hH]/, ':');
+      return f(times[0]) + ' – ' + f(times[1]) + (times.length > 2 ? ' · ' + times.slice(2).map(f).join(' – ') : '');
+    }
+    return txt.replace(/[|_]+/g, ' ').replace(/\s{2,}/g, ' ').trim() || raw;
+  }
+  const todayBox = $('#today');
+  function renderToday() {
+    const it = weekOfToday();
+    if (!it) { todayBox.hidden = true; return; }
+    const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    $('#todayDay').textContent = "Aujourd'hui · " + day;
+    const h = it.rows ? todayHours(it) : null;
+    const hours = $('#todayHours');
+    todayBox.hidden = false;
+    todayBox.classList.toggle('dim', !h);
+    hours.textContent = h || (it.rows ? 'Horaires illisibles : touche pour voir la capture' : 'Horaires en cours de lecture…');
+  }
+  todayBox.onclick = () => {
+    const it = weekOfToday();
+    if (!it) return;
+    if (it.id !== currentId) { currentId = it.id; render(); }
+    else if (sc > 1) resetZoom();
+  };
+
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
     if (selectId != null) currentId = selectId;
@@ -316,6 +372,7 @@
   }
 
   function render(dir = 0) {
+    renderToday();
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
@@ -756,7 +813,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v20.3 · 22 oct. 2026';
+  const APP_VERSION = 'v21.0 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
