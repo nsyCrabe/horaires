@@ -48,13 +48,19 @@
   .icon-btn[hidden] { display: none; }
 
   .today {
-    display: block; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 16px 12px; text-align: left;
+    display: flex; flex-direction: column; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 14px; text-align: left;
     background: var(--panel); border: 1px solid var(--line); border-left: 5px solid #8ec5ff; border-radius: 16px;
+    overflow: hidden;
   }
   .today[hidden] { display: none; }
-  .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; }
-  .today .t2 { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.2; letter-spacing: .01em; }
-  .today.rest .t2 { color: var(--muted); }
+  .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; margin-bottom: 6px; }
+  .today-crop {
+    width: 100%; height: 85px; border-radius: 8px; overflow: hidden; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .today-crop img {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+  }
 
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
@@ -143,7 +149,9 @@
 
 <button class="today" id="today" hidden>
   <span class="t1" id="todayLabel"></span>
-  <span class="t2" id="todayValue"></span>
+  <div class="today-crop">
+    <img id="todayImg" alt="Extrait de la ligne d'aujourd'hui">
+  </div>
 </button>
 
 <main id="stage">
@@ -269,8 +277,9 @@
     const d = new Date(cur.start); d.setDate(d.getDate() + idx);
     return cur.rows[d.getDate()] ? idx : null;
   }
-  // Les images (surlignées ou non) sont gardées en mémoire : revenir sur une semaine est instantané
-  const srcCache = new Map();   // clé → { p: promesse de l'adresse de l'image, url }
+  
+  // Cache d'images
+  const srcCache = new Map();
   function cacheKey(cur) {
     const idx = highlightDay(cur);
     return cur.id + '|' + (idx == null ? 'n' : idx + '|' + JSON.stringify(cur.rows));
@@ -282,7 +291,7 @@
       e = { p: drawSrc(cur), url: null };
       e.p.then(u => { e.url = u; });
       srcCache.set(key, e);
-      while (srcCache.size > 12) {   // on garde les 12 plus récentes
+      while (srcCache.size > 12) {
         const [k, old] = srcCache.entries().next().value;
         if (k === key || (old.url && old.url === url)) { srcCache.delete(k); srcCache.set(k, old); continue; }
         if (old.url) URL.revokeObjectURL(old.url);
@@ -294,6 +303,9 @@
   function dropCache(id) {
     for (const [k, e] of [...srcCache]) {
       if (k.startsWith(id + '|')) { if (e.url) URL.revokeObjectURL(e.url); srcCache.delete(k); }
+    }
+    for (const [k, url] of [...todayCropCache]) {
+      if (k.startsWith(id + '|')) { URL.revokeObjectURL(url); todayCropCache.delete(k); }
     }
   }
   async function drawSrc(cur) {
@@ -318,22 +330,38 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
-  // Horaire du jour, lu dans le texte de la ligne (« 16:30-19:30 », « Repos »)
-  function parseDay(text) {
-    const t = (text || '').trim();
-    if (!t) return null;
-    if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
-    
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~toà]+\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
-    const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
-    const out = []; let m;
-    while ((m = re.exec(t))) {
-      out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
+  // Génération de l'image découpée de la ligne du jour
+  const todayCropCache = new Map();
+  async function getTodayCropUrl(ti) {
+    if (!ti || !ti.item || !ti.item.rows || ti.idx == null) return null;
+    const key = ti.item.id + '|crop|' + ti.idx;
+    if (todayCropCache.has(key)) return todayCropCache.get(key);
+
+    try {
+      const dayOf = i => { const d = new Date(ti.item.start); d.setDate(d.getDate() + i); return d.getDate(); };
+      const R = ti.item.rows, r = R[dayOf(ti.idx)];
+      const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
+      const prev = ti.idx > 0 ? R[dayOf(ti.idx - 1)] : null, next = ti.idx < 6 ? R[dayOf(ti.idx + 1)] : null;
+      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.9;
+      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.9;
+
+      const bmp = await createImageBitmap(ti.item.blob);
+      const sy = Math.max(0, top * bmp.height);
+      const sh = Math.min(bmp.height - sy, (bottom - top) * bmp.height);
+
+      const c = document.createElement('canvas');
+      c.width = bmp.width;
+      c.height = sh;
+      const x = c.getContext('2d');
+      x.drawImage(bmp, 0, sy, bmp.width, sh, 0, 0, bmp.width, sh);
+
+      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+      const cropUrl = URL.createObjectURL(blob);
+      todayCropCache.set(key, cropUrl);
+      return cropUrl;
+    } catch (e) {
+      return null;
     }
-    if (out.length) {
-      return { rest: false, label: out.join('   ·   ') };
-    }
-    return { rest: false, label: t };
   }
 
   function todayInfo() {
@@ -345,18 +373,20 @@
       const d = new Date(it.start); d.setDate(d.getDate() + idx);
       const row = it.rows[d.getDate()];
       if (!row) continue;
-      return { item: it, date: today, row, parsed: parseDay(row.text) };
+      return { item: it, date: today, idx, row };
     }
     return null;
   }
 
-  function updateToday() {
+  async function updateToday() {
     const el = $('#today'), ti = todayInfo();
-    if (!ti || (!ti.parsed && (!ti.row || !ti.row.text))) { el.hidden = true; return; }
+    if (!ti) { el.hidden = true; return; }
+
+    const cropUrl = await getTodayCropUrl(ti);
+    if (!cropUrl) { el.hidden = true; return; }
+
     $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    const label = ti.parsed ? ti.parsed.label : (ti.row.text || '');
-    $('#todayValue').textContent = label;
-    el.classList.toggle('rest', ti.parsed ? ti.parsed.rest : false);
+    $('#todayImg').src = cropUrl;
     el.hidden = false;
   }
 
@@ -817,7 +847,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v20.1 · 22 oct. 2026';
+  const APP_VERSION = 'v22 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -849,7 +879,7 @@
     }).join('\n') : '';
     const ti = todayInfo();
     info += '\n' + (ti
-      ? (ti.parsed ? `Aujourd'hui, horaire lu : ${ti.parsed.label}.` : `Aujourd'hui, horaire illisible (texte lu : « ${ti.row.text || ''} »).`)
+      ? "Ligne d'aujourd'hui détectée et affichée en haut."
       : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
     const target = ti ? ti.item : items.find(i => i.id === currentId);
     if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
