@@ -47,22 +47,6 @@
   .icon-btn.danger { color: var(--danger); }
   .icon-btn[hidden] { display: none; }
 
-  .today {
-    display: block; width: calc(100% - 32px); margin: 0 16px 10px; padding: 10px 12px 12px; text-align: left;
-    background: var(--panel); border: 1px solid var(--line); border-left: 5px solid #8ec5ff; border-radius: 16px;
-  }
-  .today[hidden] { display: none; }
-  .today .t1 { display: block; font-size: .78rem; color: var(--muted); text-transform: capitalize; margin-bottom: 6px; }
-  #todayImg {
-    width: 100%;
-    height: 76px;
-    object-fit: cover;
-    object-position: left center;
-    display: block;
-    border-radius: 10px;
-    background: #fff;
-  }
-
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
@@ -147,11 +131,6 @@
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
 </header>
-
-<button class="today" id="today" hidden>
-  <span class="t1" id="todayLabel"></span>
-  <img id="todayImg" alt="Horaire du jour" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
-</button>
 
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
@@ -324,78 +303,6 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
-  // Rognage ultra-précis et zoomé sur la ligne du jour
-  async function cropTodayRow(cur, idx) {
-    try {
-      const dayOf = i => { const d = new Date(cur.start); d.setDate(d.getDate() + i); return d.getDate(); };
-      const R = cur.rows, r = R[dayOf(idx)];
-      const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
-      const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
-      
-      const top = prev ? (ctr(prev) + me) / 2 : me - h * 0.5;
-      const bottom = next ? (me + ctr(next)) / 2 : me + h * 0.5;
-      const cropH = Math.max(10, (bottom - top));
-
-      const bmp = await createImageBitmap(cur.blob);
-      const c = document.createElement('canvas');
-      
-      const sy = top * bmp.height;
-      const sh = cropH * bmp.height;
-      
-      const sx = 0;
-      const sw = bmp.width * 0.82;
-
-      c.width = sw;
-      c.height = sh;
-      const x = c.getContext('2d');
-      x.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
-      
-      const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-      return URL.createObjectURL(blob);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function todayInfo() {
-    const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
-    for (const it of items) {
-      if (it.start == null || !it.rows) continue;
-      const idx = Math.round((today - it.start) / 864e5);
-      if (idx < 0 || idx > 6) continue;
-      const d = new Date(it.start); d.setDate(d.getDate() + idx);
-      const row = it.rows[d.getDate()];
-      if (!row) continue;
-      return { item: it, date: today, idx };
-    }
-    return null;
-  }
-
-  let cropUrl = null;
-  async function updateToday() {
-    const el = $('#today'), ti = todayInfo();
-    if (!ti) { el.hidden = true; return; }
-    
-    $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    
-    const crop = await cropTodayRow(ti.item, ti.idx);
-    if (crop) {
-      if (cropUrl) URL.revokeObjectURL(cropUrl);
-      cropUrl = crop;
-      $('#todayImg').src = crop;
-      el.hidden = false;
-    } else {
-      el.hidden = true;
-    }
-  }
-
-  $('#today').onclick = () => {
-    const ti = todayInfo();
-    if (!ti || ti.item.id === currentId) return;
-    const di = items.indexOf(ti.item) - items.findIndex(x => x.id === currentId);
-    currentId = ti.item.id; render(Math.sign(di));
-  };
-
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
     if (selectId != null) currentId = selectId;
@@ -409,7 +316,6 @@
   }
 
   function render(dir = 0) {
-    updateToday();
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
@@ -487,7 +393,7 @@
     if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
   };
 
-  /* ---------- Zoom, déplacement, double tap, glisser pour changer de semaine ---------- */
+  /* ---------- Zoom, déplacement, double tap, clic pour agrandir ---------- */
   let sc = 1, px = 0, py = 0;
   const pts = new Map();
   let g = null, lastTap = 0, moved = false, swiping = false, swipeDx = 0, swipeDy = 0;
@@ -567,7 +473,11 @@
         if (now - lastTap < 300) {
           if (sc > 1) { sc = 1; px = py = 0; apply(); } else zoomAt(e.clientX, e.clientY, 2.5);
           lastTap = 0;
-        } else lastTap = now;
+        } else {
+          // Un simple clic/tap sans mouvement zoome directement en grand sur l'emploi du temps
+          if (sc > 1) { sc = 1; px = py = 0; } else { zoomAt(e.clientX, e.clientY, 2.5); }
+          lastTap = now;
+        }
       }
     }
     g = pts.size ? snap() : null;
@@ -846,7 +756,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v20.2 · 22 oct. 2026';
+  const APP_VERSION = 'v20.3 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -876,11 +786,7 @@
       const w = weekInfo(it);
       return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7' + (it.dbg ? ' (' + it.dbg + ')' : '');
     }).join('\n') : '';
-    const ti = todayInfo();
-    info += '\n' + (ti
-      ? `Aujourd'hui, ligne repérée sur le planning.`
-      : "Aucun planning ne contient la ligne d'aujourd'hui : pas de surlignage ni de bandeau.");
-    const target = ti ? ti.item : items.find(i => i.id === currentId);
+    const target = cur;
     if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
     $('#rowsInfo').textContent = info;
     dlg.showModal();
