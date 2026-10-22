@@ -320,14 +320,22 @@
 
   // Horaire du jour, lu dans le texte de la ligne (« 16:30-19:30 », « Repos »)
   function parseDay(text) {
-    const t = text || '';
+    const t = (text || '').trim();
+    if (!t) return null;
     if (/repos/i.test(t)) return { rest: true, label: 'Repos' };
-    const re = /(\d{1,2})\s*[:.hH-]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH-]\s*(\d{2})/g;
+    
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~toà]+\s*(\d{1,2})\s*[:.hH]\s*(\d{2})/g;
     const f = (h, m) => String(h).padStart(2, '0') + ':' + m;
     const out = []; let m;
-    while ((m = re.exec(t))) out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
-    return out.length ? { rest: false, label: out.join('   ·   ') } : null;
+    while ((m = re.exec(t))) {
+      out.push(f(m[1], m[2]) + ' – ' + f(m[3], m[4]));
+    }
+    if (out.length) {
+      return { rest: false, label: out.join('   ·   ') };
+    }
+    return { rest: false, label: t };
   }
+
   function todayInfo() {
     const t = new Date(), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
     for (const it of items) {
@@ -341,14 +349,17 @@
     }
     return null;
   }
+
   function updateToday() {
     const el = $('#today'), ti = todayInfo();
-    if (!ti || !ti.parsed) { el.hidden = true; return; }
+    if (!ti || (!ti.parsed && (!ti.row || !ti.row.text))) { el.hidden = true; return; }
     $('#todayLabel').textContent = "Aujourd'hui · " + ti.date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#todayValue').textContent = ti.parsed.label;
-    el.classList.toggle('rest', ti.parsed.rest);
+    const label = ti.parsed ? ti.parsed.label : (ti.row.text || '');
+    $('#todayValue').textContent = label;
+    el.classList.toggle('rest', ti.parsed ? ti.parsed.rest : false);
     el.hidden = false;
   }
+
   $('#today').onclick = () => {
     const ti = todayInfo();
     if (!ti || ti.item.id === currentId) return;
@@ -360,13 +371,12 @@
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
     if (selectId != null) currentId = selectId;
     if (!items.some(i => i.id === currentId)) {
-      // par défaut : la semaine en cours, sinon la plus récente
       const now = Date.now(), week = 7 * 864e5;
       const cur = items.find(i => i.start != null && now >= i.start && now < i.start + week);
       currentId = cur ? cur.id : (items.length ? items[items.length - 1].id : null);
     }
     render();
-    items.filter(it => highlightDay(it) != null).forEach(buildSrc);   // prépare la semaine en cours
+    items.filter(it => highlightDay(it) != null).forEach(buildSrc);
   }
 
   function render(dir = 0) {
@@ -392,17 +402,16 @@
 
     const cur = items.find(i => i.id === currentId);
     if (cur) {
-      img.hidden = true; // réaffiché au chargement pour éviter un flash
+      img.hidden = true;
       const token = ++renderToken;
       buildSrc(cur).then(u => {
         if (token !== renderToken) return;
         url = u;
-        if (img.getAttribute('src') === u && img.complete && img.naturalWidth) img.onload();   // même image : pas de rechargement
+        if (img.getAttribute('src') === u && img.complete && img.naturalWidth) img.onload();
         else img.src = u;
       });
       img.onload = () => {
         img.hidden = false; resetZoom();
-        // La nouvelle semaine arrive du côté vers lequel on va (suivante = droite, précédente = gauche)
         if (dir && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
           img.animate(
             [{ transform: `translateX(${dir * 35}%)`, opacity: 0 }, { transform: 'translateX(0)', opacity: 1 }],
@@ -449,7 +458,7 @@
     if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
   };
 
-  /* ---------- Zoom (vers les doigts), déplacement, double tap, glisser pour changer de semaine ---------- */
+  /* ---------- Zoom, déplacement, double tap, glisser pour changer de semaine ---------- */
   let sc = 1, px = 0, py = 0;
   const pts = new Map();
   let g = null, lastTap = 0, moved = false, swiping = false, swipeDx = 0, swipeDy = 0;
@@ -465,7 +474,6 @@
     py = Math.min(my, Math.max(-my, py));
   }
   function resetZoom() { sc = 1; px = py = 0; apply(); }
-  // Zoome en gardant le point (cx, cy) de l'écran fixe sous le doigt
   function zoomAt(cx, cy, s1) {
     const c = centre(), ux = cx - c.x, uy = cy - c.y;
     px = ux - s1 * (ux - px) / sc;
@@ -503,7 +511,6 @@
     const dx = m.x - g.m.x, dy = m.y - g.m.y;
     if (Math.hypot(dx, dy) > 6) moved = true;
 
-    // Image non zoomée + un doigt : on glisse pour changer de semaine
     if (pts.size === 1 && g.sc <= 1) {
       swiping = true; swipeDx = dx; swipeDy = dy;
       apply(dx * 0.6);
@@ -564,7 +571,6 @@
     if (files.length) await addFiles(files);
   }
 
-
   /* ---------- Détection automatique des dates (OCR) ---------- */
   let workerP = null, scanning = false, rescanAgain = false;
   const loadScript = src => new Promise((res, rej) => {
@@ -599,8 +605,8 @@
     const f = n => String(n).padStart(2, '0');
     const [a, b] = found;
     const startD = new Date(a.y, a.mo - 1, a.d);
-    let suspect = Math.abs(a.y - new Date().getFullYear()) > 1;   // année mal lue ?
-    if (b) {                                                       // la fin doit tomber 6 jours après le début
+    let suspect = Math.abs(a.y - new Date().getFullYear()) > 1;
+    if (b) {
       const end = new Date(startD); end.setDate(end.getDate() + 6);
       if (end.getDate() !== b.d || end.getMonth() + 1 !== b.mo) suspect = true;
     }
@@ -609,7 +615,6 @@
       start: startD.getTime(), suspect
     };
   }
-  // Mots reconnus par l'OCR (quelle que soit la forme de sortie de la bibliothèque)
   function ocrWords(data) {
     if (data.words && data.words.length) return data.words;
     const ws = (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => (p.lines || []).flatMap(l => l.words || [])));
@@ -621,12 +626,10 @@
     if (data.lines && data.lines.length) return data.lines;
     return (data.blocks || []).flatMap(b => (b.paragraphs || []).flatMap(p => p.lines || []));
   }
-  // Repère la position verticale de chaque jour (« L 12 », « J 15 »…) dans l'image
   function parseRows(data, H, W, start) {
     const days = [];
     for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d.getDate()); }
     const rows = {};
-    // 1) le numéro du jour, isolé ou collé à sa lettre, dans la colonne de gauche
     for (const w of ocrWords(data)) {
       const m = /^[^\dA-Za-z]*[A-Za-z]?[^\dA-Za-z]*(\d{1,2})$/.exec((w.text || '').trim());
       if (!m || !w.bbox) continue;
@@ -634,7 +637,6 @@
       if (!days.includes(n) || rows[n] || w.bbox.x0 > W * 0.3) continue;
       rows[n] = { y0: w.bbox.y0 / H, y1: w.bbox.y1 / H };
     }
-    // Texte de chaque ligne : tous les mots situés à la même hauteur que le numéro du jour
     if (Object.keys(rows).length) {
       const all = ocrWords(data).filter(w => w.bbox && (w.text || '').trim());
       for (const n of Object.keys(rows)) {
@@ -643,7 +645,6 @@
           .sort((a, b) => a.bbox.x0 - b.bbox.x0).map(w => w.text.trim()).join(' ');
       }
     }
-    // 2) en secours : lignes qui commencent par « lettre + numéro »
     if (!Object.keys(rows).length) {
       for (const l of ocrLines(data)) {
         const m = /^[^\dA-Za-z]*[A-Za-z|]?\s*(\d{1,2})(?![\d:\/])/.exec((l.text || '').trim());
@@ -653,17 +654,15 @@
         rows[n] = { y0: l.bbox.y0 / H, y1: l.bbox.y1 / H, text: (l.text || '').trim() };
       }
     }
-    let last = -1;   // cohérence : de haut en bas, dans l'ordre de la semaine
+    let last = -1;
     for (const n of days) { if (!rows[n]) continue; if (rows[n].y0 <= last) return null; last = rows[n].y0; }
     return Object.keys(rows).length ? rows : null;
   }
-  // Morceaux de texte lus par l'OCR : les mots si la bibliothèque les donne, sinon les lignes entières
   function ocrItems(data) {
     const ok = x => x.bbox && (x.text || '').trim();
     const w = ocrWords(data).filter(ok);
     return w.length ? w : ocrLines(data).filter(ok);
   }
-  // Repère les traits horizontaux du tableau (ne dépend pas de la lecture des chiffres par l'OCR)
   function gridLines(canvas) {
     const W = canvas.width, H = canvas.height;
     const px = canvas.getContext('2d').getImageData(0, 0, W, H).data;
@@ -681,14 +680,13 @@
       if (g && y - g[1] <= 1) g[1] = y; else groups.push([y, y]);
     }
     const pos = [];
-    for (const [a, b] of groups) { if (a <= 2) continue; pos.push(b >= H - 3 ? a : (a + b) / 2); }   // marge du haut ignorée
+    for (const [a, b] of groups) { if (a <= 2) continue; pos.push(b >= H - 3 ? a : (a + b) / 2); }
     const gaps = pos.slice(1).map((v, i) => v - pos[i]).sort((p, q) => p - q);
     const med = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
     const merged = [];
     for (const p of pos) { if (merged.length && p - merged[merged.length - 1] < med * 0.5) continue; merged.push(p); }
     return merged;
   }
-  // Texte brut de l'OCR : la ligne de chaque jour, repérée par son numéro (« L 19 … », « V_23 … »)
   function plainByDay(text, start) {
     const days = [];
     for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); days.push(d.getDate()); }
@@ -702,7 +700,6 @@
     }
     return out;
   }
-  // Les 7 dernières cases du tableau = lundi → dimanche
   function rowsFromGrid(canvas, data, start) {
     const H = canvas.height;
     const lines = gridLines(canvas);
@@ -710,7 +707,7 @@
     const L = lines.slice(-8);
     const gaps = L.slice(1).map((v, i) => v - L[i]);
     const med = [...gaps].sort((a, b) => a - b)[3];
-    if (!med || gaps.some(g => g < med * 0.6 || g > med * 1.6)) return null;   // cases irrégulières : on ne se fie pas à ce repérage
+    if (!med || gaps.some(g => g < med * 0.6 || g > med * 1.6)) return null;
     const words = ocrItems(data);
     const rows = {};
     for (let i = 0; i < 7; i++) {
@@ -726,7 +723,6 @@
   }
   const nbRows = it => it && it.rows ? Object.keys(it.rows).length : 0;
 
-  // Lit un planning : dates + lignes des jours. Ne remplace jamais un bon résultat par un moins bon.
   async function scanOne(stale) {
     const OUT = { text: true, blocks: true, tsv: true };
     const first = !stale.scanned;
@@ -748,23 +744,23 @@
       const data = await pass('3');
       let data2 = null;
       r = parseRange(data.text || '');
-      if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }   // la ligne des dates est parfois mieux lue dans ce mode
-      okR = !!r && (!r.suspect || stale.start == null);   // une date douteuse ne remplace pas une date déjà connue
+      if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }
+      okR = !!r && (!r.suspect || stale.start == null);
       const start = okR ? r.start : stale.start;
       if (start != null) {
-        rows = rowsFromGrid(canvas, data, start);   // 1) les traits du tableau
-        if (rows && Object.values(rows).every(x => !x.text)) {   // cases trouvées mais aucun texte lu : autre mode de lecture
+        rows = rowsFromGrid(canvas, data, start);
+        if (rows && Object.values(rows).every(x => !x.text)) {
           if (!data2) data2 = await pass('6');
           rows = rowsFromGrid(canvas, data2, start) || rows;
         }
-        if (rows) {   // cases sans texte : on le prend dans le texte brut de la lecture
+        if (rows) {
           for (const d of [data, data2]) {
             if (!d) continue;
             const pb = plainByDay(d.text, start);
             for (const n of Object.keys(rows)) if (!rows[n].text && pb[n]) rows[n].text = pb[n];
           }
         }
-        if (!rows) {                                // 2) en secours : numéros des jours lus par l'OCR
+        if (!rows) {
           rows = parseRows(data, canvas.height, canvas.width, start);
           if (!rows || Object.keys(rows).length < 7) {
             if (!data2) data2 = await pass('6');
@@ -778,11 +774,11 @@
       rawText = data.text || '';
       await w.setParameters({ tessedit_pageseg_mode: '3' });
     } catch (e) {
-      try {   // on garde la raison de l'échec pour l'afficher dans les paramètres
+      try {
         const f = await getOne(stale.id);
         if (f) { f.dbg = 'erreur : ' + ((e && e.message) || e); await put(f); }
       } catch (e2) {}
-      return { failed: true };   // ce planning-là a échoué : on passe aux suivants
+      return { failed: true };
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
@@ -799,7 +795,7 @@
   }
 
   async function scanPending() {
-    if (scanning) { rescanAgain = true; return; }   // une lecture est déjà en cours : on enchaîne juste après
+    if (scanning) { rescanAgain = true; return; }
     scanning = true;
     let total = 0, ok = 0, manual = false;
     try {
@@ -808,7 +804,7 @@
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
         const todo = items.filter(i => !i.scanned || i.rowsV !== 7)
-          .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));   // semaine en cours d'abord
+          .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
           const res = await scanOne(it);
@@ -821,7 +817,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v20 · 19 oct. 2026';   // à changer à chaque mise à jour
+  const APP_VERSION = 'v20.1 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -861,7 +857,6 @@
     dlg.showModal();
   };
   $('#closeSet').onclick = () => dlg.close();
-  // Vide les fichiers de l'app gardés en cache (pas les plannings) puis recharge la dernière version
   $('#update').onclick = async () => {
     const b = $('#update');
     if (!navigator.onLine) { toast('Pas de connexion : impossible de mettre à jour', 3000); return; }
@@ -925,19 +920,18 @@
       await refresh(lastId);
       dlg.close();
       toast(n ? (n > 1 ? n + ' plannings restaurés' : '1 planning restauré') : 'Tout était déjà là');
-      scanPending();   // repère tout de suite les lignes des jours si la sauvegarde ne les contenait pas
+      scanPending();
     } catch (err) {
       toast('Fichier de sauvegarde invalide', 3000);
     }
   };
 
-  /* ---------- Raccourci « Ajouter une capture » (appui long sur l'icône) ---------- */
+  /* ---------- Raccourci « Ajouter une capture » ---------- */
   const addDlg = $('#addDlg');
   $('#addGo').onclick = () => { addDlg.close(); fileInput.click(); };
   $('#addCancel').onclick = () => addDlg.close();
   addDlg.addEventListener('click', e => { if (e.target === addDlg) addDlg.close(); });
 
-  // Si l'app reste ouverte au-delà de minuit, la ligne surlignée change
   let dayKey = new Date().toDateString();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && new Date().toDateString() !== dayKey) {
