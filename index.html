@@ -54,10 +54,14 @@
   }
   #today[hidden] { display: none; }
   #today .t1 { font-size: .78rem; font-weight: 600; opacity: .9; text-transform: capitalize; letter-spacing: .02em; }
-  #today .t2 { font-size: 1.6rem; font-weight: 750; line-height: 1.2; word-break: break-word; }
+  #today .t2 { font-size: 1rem; font-weight: 650; line-height: 1.2; }
+  #today .tscroll { overflow-x: auto; border-radius: 10px; background: #fff; margin-top: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  #today .tscroll::-webkit-scrollbar { display: none; }
+  #todayImg { display: block; width: 100%; height: auto; }
+  #today.big #todayImg { width: 220%; }
   #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
-  #today.dim .t2 { font-size: 1rem; font-weight: 600; color: var(--muted); }
-  #today:active { filter: brightness(.92); }
+  #today.dim .t2 { font-weight: 600; color: var(--muted); }
+  #today.dim .tscroll { display: none; }
 
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
@@ -144,10 +148,11 @@
   </button>
 </header>
 
-<button id="today" hidden aria-live="polite">
+<div id="today" hidden role="button" tabindex="0" aria-live="polite">
   <span class="t1" id="todayDay"></span>
   <span class="t2" id="todayHours"></span>
-</button>
+  <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
+</div>
 
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
@@ -325,39 +330,60 @@
     const now = Date.now(), week = 7 * 864e5;
     return items.find(i => i.start != null && now >= i.start && now < i.start + week) || null;
   }
-  function todayHours(it) {
+  const todayBox = $('#today'), todayImg = $('#todayImg');
+  const stripCache = new Map();
+  let todayToken = 0;
+  async function cropToday(it) {
     const idx = highlightDay(it);
     if (idx == null) return null;
-    const d = new Date(it.start); d.setDate(d.getDate() + idx);
-    const raw = (it.rows[d.getDate()].text || '').trim();
-    if (!raw) return '';
-    // Retire le nom/numéro du jour au début (ex. « Jeu 22 »), garde le reste
-    let txt = raw.replace(/^[^\dA-Za-z]*[A-Za-z]{0,4}\.?\s*\d{1,2}(?![\d:\/hH])\s*/, '');
-    const times = txt.match(/\d{1,2}\s*[:hH]\s*\d{2}/g);
-    if (times && times.length >= 2) {
-      const f = t => t.replace(/\s+/g, '').replace(/[hH]/, ':');
-      return f(times[0]) + ' – ' + f(times[1]) + (times.length > 2 ? ' · ' + times.slice(2).map(f).join(' – ') : '');
-    }
-    return txt.replace(/[|_]+/g, ' ').replace(/\s{2,}/g, ' ').trim() || raw;
+    const key = it.id + '|' + idx + '|' + JSON.stringify(it.rows);
+    if (stripCache.has(key)) return stripCache.get(key);
+    const dayOf = i => { const d = new Date(it.start); d.setDate(d.getDate() + i); return d.getDate(); };
+    const R = it.rows, r = R[dayOf(idx)];
+    const ctr = q => (q.y0 + q.y1) / 2, h = r.y1 - r.y0, me = ctr(r);
+    const prev = idx > 0 ? R[dayOf(idx - 1)] : null, next = idx < 6 ? R[dayOf(idx + 1)] : null;
+    const top = Math.max(0, prev ? (ctr(prev) + me) / 2 : me - h * 0.9);
+    const bottom = Math.min(1, next ? (me + ctr(next)) / 2 : me + h * 0.9);
+    const bmp = await createImageBitmap(it.blob);
+    const sy = Math.round(top * bmp.height), sh = Math.max(1, Math.round((bottom - top) * bmp.height));
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = sh;
+    c.getContext('2d').drawImage(bmp, 0, sy, bmp.width, sh, 0, 0, bmp.width, sh);
+    const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+    const u = URL.createObjectURL(blob);
+    for (const [k, old] of stripCache) { if (k.startsWith(it.id + '|')) { URL.revokeObjectURL(old); stripCache.delete(k); } }
+    stripCache.set(key, u);
+    return u;
   }
-  const todayBox = $('#today');
-  function renderToday() {
+  async function renderToday() {
     const it = weekOfToday();
+    const token = ++todayToken;
     if (!it) { todayBox.hidden = true; return; }
     const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     $('#todayDay').textContent = "Aujourd'hui · " + day;
-    const h = it.rows ? todayHours(it) : null;
-    const hours = $('#todayHours');
     todayBox.hidden = false;
-    todayBox.classList.toggle('dim', !h);
-    hours.textContent = h || (it.rows ? 'Horaires illisibles : touche pour voir la capture' : 'Horaires en cours de lecture…');
+    let u = null;
+    try { u = it.rows ? await cropToday(it) : null; } catch (e) {}
+    if (token !== todayToken) return;
+    todayBox.classList.toggle('dim', !u);
+    if (u) {
+      if (todayImg.getAttribute('src') !== u) todayImg.src = u;
+      $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+    } else {
+      todayImg.removeAttribute('src');
+      $('#todayHours').textContent = it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…';
+    }
   }
-  todayBox.onclick = () => {
+  const toggleToday = () => {
     const it = weekOfToday();
     if (!it) return;
-    if (it.id !== currentId) { currentId = it.id; render(); }
-    else if (sc > 1) resetZoom();
+    if (it.id !== currentId) { currentId = it.id; render(); return; }
+    if (todayBox.classList.contains('dim')) return;
+    todayBox.classList.toggle('big');
+    $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+    $('.tscroll').scrollLeft = 0;
   };
+  todayBox.onclick = toggleToday;
+  todayBox.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleToday(); } };
 
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
@@ -813,7 +839,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.0 · 22 oct. 2026';
+  const APP_VERSION = 'v21.1 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
