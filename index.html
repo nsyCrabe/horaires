@@ -58,7 +58,7 @@
   #today .tscroll { overflow-x: auto; border-radius: 10px; background: #fff; margin-top: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   #today .tscroll::-webkit-scrollbar { display: none; }
   #todayImg { display: block; width: 100%; height: auto; }
-  #today.big #todayImg { width: 220%; }
+  #today.big #todayImg { width: 200%; }
   #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
   #today.dim .t2 { font-weight: 600; color: var(--muted); }
   #today.dim .tscroll { display: none; }
@@ -148,7 +148,7 @@
   </button>
 </header>
 
-<div id="today" hidden role="button" tabindex="0" aria-live="polite">
+<div id="today" class="big" hidden role="button" tabindex="0" aria-live="polite">
   <span class="t1" id="todayDay"></span>
   <span class="t2" id="todayHours"></span>
   <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
@@ -839,7 +839,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.1 · 22 oct. 2026';
+  const APP_VERSION = 'v21.2 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
