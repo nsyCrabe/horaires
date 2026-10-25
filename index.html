@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0d1016" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f2f3f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,143 +12,131 @@
 <title>Mes horaires</title>
 <style>
   :root {
-    --bg: #0d1016; --panel: #171b23; --raised: #1e232d; --line: #2a303c;
-    --text: #eef0f4; --muted: #9aa2b1; --accent: #5b9bff; --on-accent: #07101f; --danger: #ff7a6e;
-    --shadow: 0 10px 30px rgba(0,0,0,.35);
-  }
-  @media (prefers-color-scheme: light) {
-    :root { --bg: #f2f3f7; --panel: #ffffff; --raised: #eceef3; --line: #dadee6;
-      --text: #141821; --muted: #5d6676; --accent: #2f6df0; --on-accent: #fff; --danger: #d4372a; --shadow: 0 10px 30px rgba(20,24,33,.12); }
+    --bg: #0f1115;
+    --panel: #181b21;
+    --line: #2a2e37;
+    --text: #eceae6;
+    --muted: #9a9ea8;
+    --accent: #4c8dff;
+    --danger: #ff6b5e;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: var(--bg); color: var(--text);
+    background: var(--bg);
+    color: var(--text);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-feature-settings: "tnum"; -webkit-font-smoothing: antialiased;
-    display: flex; flex-direction: column; overflow: hidden;
+    display: flex;
+    flex-direction: column;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow: hidden;
   }
-  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
-
-  header { display: flex; align-items: center; gap: 6px; padding: 14px 16px 10px 20px; }
-  header h1 { font-size: 1.3rem; font-weight: 750; letter-spacing: -.02em; margin: 0; flex: 1; min-width: 0;
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px 8px;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 650; margin: 0; flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .icon-btn { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: transparent; color: var(--muted); transition: background .15s, color .15s; }
-  .icon-btn:hover, .icon-btn:active { background: var(--panel); color: var(--text); }
-  .icon-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-  .icon-btn.danger:hover, .icon-btn.danger:active { color: var(--danger); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  .icon-btn {
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .icon-btn:active { background: var(--line); }
+  .icon-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-btn.danger { color: var(--danger); }
   .icon-btn[hidden] { display: none; }
 
-  #today { margin: 2px 14px 10px; padding: 14px 16px 16px; border-radius: 24px; text-align: left; width: auto;
-    background: var(--accent); color: var(--on-accent); display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow); }
+  #today {
+    margin: 2px 12px 8px; padding: 12px 16px; border-radius: 16px; text-align: left; width: auto;
+    background: var(--accent); color: #fff; display: flex; flex-direction: column; gap: 2px;
+    box-shadow: 0 4px 18px rgba(76,141,255,.28);
+  }
   #today[hidden] { display: none; }
-  #today .t1 { font-size: .85rem; font-weight: 600; opacity: .8; }
-  #today .t2 { font-size: .95rem; font-weight: 600; line-height: 1.25; }
-  #today .t2.hrs { font-size: 1.7rem; font-weight: 750; letter-spacing: -.02em; line-height: 1.1; }
-  #today .tscroll { overflow-x: auto; border-radius: 14px; background: #fff; margin-top: 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  #today .t1 { font-size: .78rem; font-weight: 600; opacity: .9; text-transform: capitalize; letter-spacing: .02em; }
+  #today .t2 { font-size: 1rem; font-weight: 650; line-height: 1.2; }
+  #today .tscroll { overflow-x: auto; border-radius: 10px; background: #fff; margin-top: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   #today .tscroll::-webkit-scrollbar { display: none; }
   #todayImg { display: block; width: 100%; height: auto; }
   #today.big #todayImg { width: 200%; }
-  #today.dim { background: var(--panel); color: var(--text); box-shadow: none; }
-  #today.dim .t2 { color: var(--muted); }
+  #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
+  #today.dim .t2 { font-weight: 600; color: var(--muted); }
   #today.dim .tscroll { display: none; }
 
-  #stage { flex: 1; min-height: 0; position: relative; overflow: hidden; padding: 0 12px 10px;
-    display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; -webkit-user-select: none; }
-  #img { width: 100%; max-height: 100%; object-fit: contain; display: block; background: #fff; border-radius: 14px;
-    box-shadow: var(--shadow); transform-origin: center center; will-change: transform; -webkit-user-drag: none; pointer-events: none; }
+  #stage {
+    flex: 1; min-height: 0; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #img {
+    width: 100%; max-height: 100%; object-fit: contain; display: block;
+    background: #fff; transform-origin: center center; will-change: transform;
+    -webkit-user-drag: none; pointer-events: none;
+  }
   #img[hidden] { display: none; }
 
-  #empty { padding: 32px 28px; text-align: center; max-width: 380px; }
-  #empty .ico { width: 84px; height: 84px; border-radius: 28px; margin: 0 auto 20px; display: grid; place-items: center; background: var(--panel); color: var(--accent); }
-  #empty .ico svg { width: 40px; height: 40px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-  #empty h2 { font-size: 1.4rem; letter-spacing: -.02em; margin: 0 0 8px; }
-  #empty p { color: var(--muted); line-height: 1.55; margin: 0 0 24px; }
-  .primary { background: var(--accent); color: var(--on-accent); font-weight: 700; padding: 14px 24px; border-radius: 16px; font-size: 1rem; }
+  #empty { padding: 32px 28px; text-align: center; max-width: 420px; }
+  #empty h2 { font-size: 1.25rem; margin: 0 0 8px; }
+  #empty p { color: var(--muted); line-height: 1.5; margin: 0 0 20px; }
+  .primary {
+    background: var(--accent); color: #fff; font-weight: 650;
+    padding: 14px 22px; border-radius: 14px; font-size: 1rem;
+  }
   .primary:active { filter: brightness(.9); }
 
-  #bar { display: flex; align-items: center; gap: 10px; padding: 12px 12px 14px; background: var(--panel); border-radius: 24px 24px 0 0; }
+  #bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
   #chips { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
   #chips::-webkit-scrollbar { display: none; }
-  .chip { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 15px; border-radius: 16px;
-    text-align: left; min-width: 100px; max-width: 70vw; background: var(--raised); color: var(--text); transition: background .15s; }
+  .chip {
+    flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    padding: 8px 16px; border-radius: 16px; text-align: left; min-width: 104px; max-width: 70vw;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  }
   .chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .c1 { font-size: .98rem; font-weight: 700; line-height: 1.25; }
-  .c2 { font-size: .74rem; color: var(--muted); line-height: 1.2; }
-  .chip.now .c2 { color: var(--accent); font-weight: 650; }
-  .chip.now .c2::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; }
-  .chip[aria-current="true"] { background: var(--accent); color: var(--on-accent); }
-  .chip[aria-current="true"] .c2 { color: inherit; opacity: .8; }
-  #add { width: 48px; height: 48px; border-radius: 16px; background: var(--accent); color: var(--on-accent); }
-  #add:hover, #add:active { background: var(--accent); color: var(--on-accent); filter: brightness(.92); }
+  .c1 { font-size: 1rem; font-weight: 650; line-height: 1.25; }
+  .c2 { font-size: .75rem; color: var(--muted); line-height: 1.2; }
+  .chip.now .c2 { color: var(--accent); font-weight: 600; }
+  .chip[aria-current="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip[aria-current="true"] .c2 { color: rgba(255,255,255,.88); }
+  #add { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  #toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
-    background: var(--text); color: var(--bg); padding: 11px 18px; border-radius: 999px; font-size: .9rem; font-weight: 550; max-width: 92vw;
-    box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+  #toast {
+    position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .tact { font-weight: 750; color: var(--accent); padding: 0 0 0 12px; }
-  .sr { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-
-  dialog { border: 0; background: var(--bg); color: var(--text); border-radius: 28px 28px 0 0; width: 100%; max-width: 520px;
-    margin: auto auto 0; padding: 26px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 92vh; overflow: auto; position: relative; }
-  dialog[open] { animation: sheet .24s cubic-bezier(.2,.8,.2,1); }
-  @keyframes sheet { from { transform: translateY(28px); opacity: 0; } }
-  dialog::before { content: ""; position: absolute; top: 9px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: var(--line); }
-  dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
-  dialog h2 { margin: 0 0 14px 4px; font-size: 1.3rem; letter-spacing: -.02em; }
-  dialog h3 { margin: 0 0 6px; font-size: 1rem; }
-  dialog section { margin-bottom: 12px; padding: 16px; border-radius: 20px; background: var(--panel); }
+  dialog {
+    border: 0; background: var(--panel); color: var(--text);
+    border-radius: 20px 20px 0 0; width: 100%; max-width: 520px;
+    margin: auto auto 0; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)); max-height: 92vh; overflow: auto;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h2 { margin: 0 0 16px; font-size: 1.15rem; }
+  dialog h3 { margin: 0 0 6px; font-size: .95rem; }
+  dialog section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  #rowsInfo { white-space: pre-line; }
   dialog p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; font-size: .92rem; }
-  .secondary { background: var(--raised); padding: 12px 18px; border-radius: 14px; font-size: .95rem; font-weight: 600; }
-  .secondary:active { filter: brightness(.9); }
+  .secondary { background: var(--bg); border: 1px solid var(--line); padding: 12px 18px; border-radius: 12px; font-size: .95rem; }
+  .secondary:active { background: var(--line); }
   dialog .primary[hidden] { display: none; }
-  dialog > .secondary { width: 100%; background: var(--panel); }
+  dialog > .secondary { width: 100%; }
   dialog p.version { text-align: center; font-size: .75rem; margin: 14px 0 0; opacity: .8; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   #addDlg .primary { width: 100%; margin-bottom: 10px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } dialog[open] { animation: none; } }
-  #today .t2:empty { display: none; }
-  .icon-btn { width: 38px; height: 38px; }
-  #today.plan .tscroll { display: none; }
-  #sheet { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
-  #sheet[hidden], #toSheet[hidden] { display: none; }
-  #sheet .secondary { margin-top: 4px; }
-  #toSheet { margin-top: 4px; }
-  .sheet-top { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 6px 4px; color: var(--muted); font-size: .85rem; }
-  .sheet-top b { color: var(--text); font-size: 1.1rem; letter-spacing: -.01em; }
-  .day { display: grid; grid-template-columns: 62px 1fr; column-gap: 14px; align-items: center; padding: 14px 16px; border-radius: 20px; background: var(--panel); border: 1px solid transparent; }
-  .day .dn { line-height: 1.2; }
-  .day .dn b { display: block; font-size: 1.05rem; text-transform: capitalize; }
-  .day .dn span { font-size: .8rem; color: var(--muted); }
-  .day .dh { font-size: 1.25rem; font-weight: 750; letter-spacing: -.02em; line-height: 1.25; }
-  .day .ds { font-size: .82rem; color: var(--muted); margin-top: 2px; }
-  .day .bar { position: relative; height: 6px; border-radius: 3px; background: var(--raised); margin-top: 10px; }
-  .day .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
-  .day.off { background: transparent; border-color: var(--line); border-style: dashed; }
-  .day.off .dh { font-weight: 600; font-size: 1.05rem; color: var(--muted); }
-  .day.today { background: var(--accent); color: var(--on-accent); border-color: transparent; border-style: solid; }
-  .day.today .dn span, .day.today .ds, .day.today .dh { color: inherit; }
-  .day.today .dn span, .day.today .ds { opacity: .8; }
-  .day.today .bar { background: rgba(255,255,255,.3); }
-  .day.today .bar i { background: var(--on-accent); }
-  #toSheet { margin: 0 14px 8px; padding: 10px; border-radius: 14px; background: var(--panel); font-weight: 650; font-size: .9rem; }
-  .field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; margin-bottom: 10px; }
-  .prow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .prow span { width: 76px; flex: none; font-size: .9rem; color: var(--muted); }
-  .prow .field { margin: 0; }
-  #planPic { width: 100%; max-height: 28vh; object-fit: contain; background: #fff; border-radius: 12px; margin-bottom: 12px; display: block; }
-  #planDlg .row { margin-top: 14px; }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 </style>
 </head>
 <body>
 
 <header>
   <h1 id="title">Mes horaires</h1>
-  <button class="icon-btn" id="planBtn" hidden aria-label="Planning écrit : lire et vérifier">
-    <svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
-  </button>
   <button class="icon-btn" id="rename" hidden aria-label="Renommer cette semaine">
     <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
   </button>
@@ -167,15 +154,11 @@
   <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
 </div>
 
-<button id="toSheet" hidden>← Planning écrit</button>
-<div id="sheet" hidden></div>
-
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
   <div id="empty">
-    <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4M8 14h3M13 14h3"/></svg></div>
     <h2>Aucun planning pour l'instant</h2>
-    <p>Ajoute la capture d'écran de tes horaires, ou partage-la vers l'appli depuis ta galerie. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
+    <p>Ajoute la capture d'écran de tes horaires. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
     <button class="primary" id="addEmpty">Ajouter une capture</button>
   </div>
 </main>
@@ -203,22 +186,18 @@
     </div>
   </section>
   <section>
+    <h3>Dates des plannings</h3>
+    <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
+    <p id="rowsInfo"></p>
+    <button class="secondary" id="rescan">Relancer la détection</button>
+  </section>
+  <section>
     <h3>Mise à jour</h3>
     <p>Si le numéro de version en bas n'a pas changé après un envoi sur GitHub, appuie ici. Tes plannings ne sont pas effacés.</p>
     <button class="secondary" id="update">Forcer la mise à jour</button>
   </section>
   <button class="secondary" id="closeSet">Fermer</button>
   <p class="version" id="version"></p>
-</dialog>
-
-<dialog id="planDlg" aria-labelledby="planTitle">
-  <h2 id="planTitle">Vérifie ton planning</h2>
-  <img id="planPic" alt="Capture du planning">
-  <p id="planInfo"></p>
-  <label class="prow"><span>1er jour</span><input class="field" type="date" id="planStart"></label>
-  <div id="planRows"></div>
-  <div class="row"><button class="primary" id="planOk">Valider</button><button class="secondary" id="planRe">Relire</button></div>
-  <p></p><button class="secondary" id="planClose">Fermer</button>
 </dialog>
 
 <dialog id="addDlg" aria-labelledby="addTitle">
@@ -264,7 +243,7 @@
   let items = [];
   let currentId = null;
   let url = null;
-  let renderToken = 0, showImg = false, shownId = null;
+  let renderToken = 0;
 
   const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
   const MOIS_LONG = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -284,14 +263,8 @@
     return { short, long, rel, n };
   }
   const fmtDate = ts => new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  const toast = (msg, ms = 2200, act) => {
+  const toast = (msg, ms = 2200) => {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-    t.style.pointerEvents = act ? 'auto' : 'none';
-    if (act) {
-      const b = document.createElement('button'); b.className = 'tact'; b.textContent = act.label;
-      b.onclick = () => { t.classList.remove('show'); act.fn(); };
-      t.appendChild(b);
-    }
     clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms);
   };
 
@@ -381,25 +354,6 @@
     stripCache.set(key, u);
     return u;
   }
-  function hoursOf(it) {
-    const idx = highlightDay(it); if (idx == null) return '';
-    const d = new Date(it.start); d.setDate(d.getDate() + idx);
-    const t = (it.rows[d.getDate()] || {}).text || '';
-    const re = /(?<![\d:\/])(\d{1,2})\s*[:hH.]\s*(\d{2})?\s*[-–—]\s*(\d{1,2})\s*[:hH.]\s*(\d{2})?(?![\d\/])/g;
-    const f = (h, m) => h + 'h' + (m ? String(m).padStart(2, '0') : '');
-    const out = []; let m;
-    while ((m = re.exec(t)) && out.length < 2) {
-      const a = +m[1], am = +(m[2] || 0), b = +m[3], bm = +(m[4] || 0);
-      if (a > 24 || b > 24 || am > 59 || bm > 59) continue;
-      out.push(f(a, am) + ' – ' + f(b, bm));
-    }
-    return out.join(' · ');
-  }
-  function setHint(it) {
-    const big = todayBox.classList.contains('big'), hrs = hoursOf(it);
-    $('#todayHours').classList.toggle('hrs', !!hrs);
-    $('#todayHours').textContent = (hrs ? hrs + ' (lu automatiquement, vérifie ci-dessous)' : '') + (hrs ? '' : (big ? 'Touche pour réduire' : 'Touche pour agrandir'));
-  }
   async function renderToday() {
     const it = weekOfToday();
     const token = ++todayToken;
@@ -407,19 +361,13 @@
     const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     $('#todayDay').textContent = "Aujourd'hui · " + day;
     todayBox.hidden = false;
-    const pt = planToday(it);
-    if (pt != null) {
-      todayBox.classList.remove('dim'); todayBox.classList.add('plan'); todayImg.removeAttribute('src');
-      $('#todayHours').classList.add('hrs'); $('#todayHours').textContent = pt || 'Rien de prévu'; return;
-    }
-    todayBox.classList.remove('plan');
     let u = null;
     try { u = it.rows ? await cropToday(it) : null; } catch (e) {}
     if (token !== todayToken) return;
     todayBox.classList.toggle('dim', !u);
     if (u) {
       if (todayImg.getAttribute('src') !== u) todayImg.src = u;
-      setHint(it);
+      $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
     } else {
       todayImg.removeAttribute('src');
       $('#todayHours').textContent = it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…';
@@ -431,7 +379,7 @@
     if (it.id !== currentId) { currentId = it.id; render(); return; }
     if (todayBox.classList.contains('dim')) return;
     todayBox.classList.toggle('big');
-    setHint(it);
+    $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
     $('.tscroll').scrollLeft = 0;
   };
   todayBox.onclick = toggleToday;
@@ -471,10 +419,6 @@
     if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
 
     const cur = items.find(i => i.id === currentId);
-    if (cur && cur.id !== shownId) { shownId = cur.id; showImg = false; }
-    const ok = !!(cur && cur.plan && cur.plan.verified), useSheet = ok && !showImg;
-    $('#stage').style.display = useSheet ? 'none' : ''; $('#sheet').hidden = !useSheet; $('#toSheet').hidden = !(ok && showImg);
-    if (useSheet) renderSheet(cur);
     if (cur) {
       img.hidden = true;
       const token = ++renderToken;
@@ -495,28 +439,27 @@
       };
       empty.hidden = true;
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
-      btnRename.hidden = btnDel.hidden = $('#planBtn').hidden = false;
+      btnRename.hidden = btnDel.hidden = false;
     } else {
       ++renderToken;
       url = null;
       img.hidden = true; img.removeAttribute('src');
       empty.hidden = false;
       title.textContent = 'Mes horaires';
-      btnRename.hidden = btnDel.hidden = $('#planBtn').hidden = true;
+      btnRename.hidden = btnDel.hidden = true;
     }
   }
 
   /* ---------- Ajout / renommage / suppression ---------- */
   async function addFiles(files) {
-    let lastId = null, n = 0; const ids = [];
+    let lastId = null, n = 0;
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
       const when = f.lastModified || Date.now();
       lastId = await put({ blob: f, label: 'Planning du ' + fmtDate(when), added: Date.now() + n });
-      ids.push(lastId); n++;
+      n++;
     }
-    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
-      await scanPending(); await waitScan(); openPlan(lastId); }
+    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); scanPending(); }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -530,13 +473,8 @@
   };
   btnDel.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
-    await remove(cur.id); dropCache(cur.id); currentId = null; await refresh();
-    toast('« ' + cur.label + ' » supprimé', 7000, { label: 'Annuler', fn: async () => { await refresh(await put(cur)); } });
+    if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
   };
-  /* Glisser-déposer et coller une image */
-  addEventListener('dragover', e => e.preventDefault());
-  addEventListener('drop', e => { e.preventDefault(); addFiles([...e.dataTransfer.files]); });
-  addEventListener('paste', e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) addFiles(fs); });
 
   /* ---------- Zoom, déplacement, double tap, clic pour agrandir ---------- */
   let sc = 1, px = 0, py = 0;
@@ -829,7 +767,7 @@
       let data2 = null;
       r = parseRange(data.text || '');
       if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }
-      okR = !!r && !stale.manualStart && (!r.suspect || stale.start == null);
+      okR = !!r && (!r.suspect || stale.start == null);
       const start = okR ? r.start : stale.start;
       if (start != null) {
         rows = rowsFromGrid(canvas, data, start);
@@ -872,7 +810,6 @@
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
     else if (startChanged) delete it.rows;
-    if ((!it.plan || !it.plan.verified) && it.rows && it.start != null) it.plan = planFromRows(it) || undefined;
     await put(it);
     await refresh();
     if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
@@ -888,7 +825,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => (!i.scanned || i.rowsV !== 7) && !(i.plan && i.plan.verified))
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 7)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -902,7 +839,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v24.5 · 25 oct. 2026';
+  const APP_VERSION = 'v21.2 · 22 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -925,7 +862,18 @@
     await deferred.userChoice;
     deferred = null; updateInstall();
   };
-  $('#gear').onclick = () => { updateInstall(); dlg.showModal(); };
+  $('#gear').onclick = () => {
+    updateInstall();
+    const cur = items.find(i => i.id === currentId);
+    let info = items.length ? 'Lignes repérées par planning :\n' + items.map(it => {
+      const w = weekInfo(it);
+      return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7' + (it.dbg ? ' (' + it.dbg + ')' : '');
+    }).join('\n') : '';
+    const target = cur;
+    if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
+    $('#rowsInfo').textContent = info;
+    dlg.showModal();
+  };
   $('#closeSet').onclick = () => dlg.close();
   $('#update').onclick = async () => {
     const b = $('#update');
@@ -948,6 +896,10 @@
     location.reload();
   };
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  $('#rescan').onclick = async () => {
+    for (const it of items) { it.rowsV = 0; await put(it); }
+    dlg.close(); scanPending();
+  };
   updateInstall();
 
   /* ---------- Sauvegarde : exporter / importer ---------- */
@@ -958,7 +910,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, plan: it.plan ?? null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -980,7 +932,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: o.manualStart, plan: o.plan ?? undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
         n++;
       }
       await refresh(lastId);
@@ -1005,141 +957,6 @@
     }
   });
 
-  const msToMidnight = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5) - n; };
-  (function tick() { setTimeout(() => { dayKey = new Date().toDateString(); refresh(); tick(); }, msToMidnight()); })();
-
-  /* ---------- Planning écrit par l’IA ---------- */
-  try { localStorage.removeItem('horaires-key'); } catch (e) {}
-  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const fromIso = t => { const [y, m, d] = t.split('-').map(Number); return new Date(y, m - 1, d); };
-  function planToday(it) {
-    if (!(it.plan && it.plan.verified)) return null;
-    const d = it.plan.days.find(x => x.date === iso(new Date()));
-    return d ? (d.text || '') : null;
-  }
-  function renderSheet(cur) {
-    const sh = $('#sheet'), t = iso(new Date()); sh.innerHTML = '';
-    const tm = x => { const m = /(\d{1,2})h(\d{2})?/.exec(x); return m ? +m[1] + (+(m[2] || 0)) / 60 : null; };
-    const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
-    let total = 0, worked = 0; const cards = [];
-    for (const d of cur.plan.days) {
-      const dt = d.date ? fromIso(d.date) : null, text = d.text || '', off = /^repos$/i.test(text.trim());
-      const shifts = []; let role = '';
-      for (const p of text.split(' · ')) {
-        const m = /^(\S+) – (\S+?)(?: \(pause (\d+) min\))?$/.exec(p);
-        if (m) shifts.push({ a: m[1], b: m[2], pause: +(m[3] || 0) }); else if (p && !/^(repos|\?)$/i.test(p)) role = p;
-      }
-      const r = mk('div', 'day' + (off ? ' off' : '') + (d.date === t ? ' today' : ''));
-      const n = mk('div', 'dn'); n.append(mk('b', '', dt ? dt.toLocaleDateString('fr-FR', { weekday: 'long' }) : ''), mk('span', '', dt ? dt.getDate() + ' ' + MOIS[dt.getMonth()] : ''));
-      const c = mk('div'); c.append(mk('div', 'dh', shifts.length ? shifts.map(x => x.a + ' – ' + x.b).join('   ·   ') : (text || '—')));
-      if (shifts.length) {
-        const pz = shifts.filter(x => x.pause).map(x => x.pause);
-        const sub = [role, pz.length ? (pz.length > 1 ? 'pauses ' : 'pause ') + pz.join(' + ') + ' min' : ''].filter(Boolean).join(' · ');
-        if (sub) c.append(mk('div', 'ds', sub));
-        const bar = mk('div', 'bar'); let any = false;
-        for (const x of shifts) {
-          let a = tm(x.a), b = tm(x.b); if (a == null || b == null) continue;
-          if (b < a) b += 24; total += b - a; any = true;
-          const L = Math.min(100, Math.max(0, (a - 6) / 16 * 100)), R = Math.min(100, Math.max(0, (b - 6) / 16 * 100));
-          const i = mk('i'); i.style.left = L + '%'; i.style.width = Math.max(2, R - L) + '%'; bar.append(i);
-        }
-        if (any) { c.append(bar); worked++; }
-      }
-      r.append(n, c); cards.push(r);
-    }
-    const H = Math.floor(total + 1e-6), M = Math.round((total - H) * 60);
-    const top = mk('div', 'sheet-top'); top.append(mk('b', '', `${H} h${M ? String(M).padStart(2, '0') : ''} de travail`), mk('span', '', `${worked} jour${worked > 1 ? 's' : ''} travaillé${worked > 1 ? 's' : ''}`));
-    sh.append(top, ...cards);
-    const bt = mk('button', 'secondary', 'Voir la capture');
-    bt.onclick = () => { showImg = true; render(); };
-    sh.appendChild(bt);
-  }
-  $('#toSheet').onclick = () => { showImg = false; render(); };
-
-  /* ---------- Lecture locale du planning (sans IA) ---------- */
-  const ROLE = { CAISS: 'Caisse' };
-  const hm = (h, m) => h + 'h' + (m ? String(m).padStart(2, '0') : '');
-  function parseDay(t) {
-    t = (t || '').replace(/[;,]/g, ':');
-    if (/r[eé]p[o0]s/i.test(t)) return { text: 'Repos', ok: true };
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})\s*([A-Za-zÉé]{3,})?(?:\s*(\d{1,3})\s*m[nm])?/g;
-    const parts = [], roles = new Set(); let sum = 0, m;
-    while ((m = re.exec(t))) {
-      const a = +m[1], am = +m[2], b = +m[3], bm = +m[4];
-      if (a > 24 || b > 24 || am > 59 || bm > 59) continue;
-      let d = (b * 60 + bm) - (a * 60 + am); if (d < 0) d += 1440;
-      sum += d; parts.push(hm(a, am) + ' – ' + hm(b, bm) + (m[6] && +m[6] <= 120 ? ' (pause ' + +m[6] + ' min)' : ''));
-      if (m[5]) roles.add(ROLE[m[5].toUpperCase()] || m[5][0].toUpperCase() + m[5].slice(1).toLowerCase());
-    }
-    if (!parts.length) return { text: '?', ok: false };
-    const rest = t.replace(re, ' ').replace(/\d+\s*mn/gi, ' '), tot = [...rest.matchAll(/(\d{1,2})\s*:\s*(\d{2})/g)].pop();
-    const ok = !!tot && Math.abs(+tot[1] * 60 + +tot[2] - sum) <= 1;
-    return { text: parts.join(' · ') + (roles.size === 1 ? ' · ' + [...roles][0] : ''), ok };
-  }
-  function planFromRows(it) {
-    if (!it.rows || it.start == null) return null;
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(it.start); d.setDate(d.getDate() + i);
-      const r = it.rows[d.getDate()], p = parseDay(r && r.text);
-      days.push({ date: iso(d), text: p.text, warn: !p.ok });
-    }
-    return days.every(d => d.text === '?') ? null : { days, verified: false, auto: true };
-  }
-  const waitScan = async () => { for (let i = 0; i < 240 && scanning; i++) await new Promise(r => setTimeout(r, 250)); };
-  async function ensurePlan(id) {
-    const it = await getOne(id); if (!it) return null;
-    if (it.plan) return it;
-    const p = planFromRows(it);
-    if (!p) {
-      if (scanning) { toast('Lecture en cours, patiente quelques secondes…', 3000); return null; }
-      const t = new Date(), s0 = it.start != null ? new Date(it.start) : new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7));
-      it.plan = { blank: true, verified: false, days: Array.from({ length: 7 }, (_, i) => { const d = new Date(s0); d.setDate(d.getDate() + i); return { date: iso(d), text: '', warn: true }; }) };
-      return it;
-    }
-    it.plan = p; await put(it); await refresh(); return it;
-  }
-  const planDlg = $('#planDlg'); let planId = null, draft = null, picUrl = null;
-  function renderRows() {
-    const box = $('#planRows'); box.innerHTML = '';
-    draft.days.forEach(d => {
-      const l = document.createElement('label'); l.className = 'prow';
-      const s = document.createElement('span'); s.textContent = d.date ? fromIso(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }) : 'Jour';
-      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; inp.placeholder = '9h – 13h, ou Repos'; if (d.warn) inp.style.borderColor = 'var(--danger)'; inp.oninput = () => { d.text = inp.value; d.warn = false; inp.style.borderColor = ''; };
-      l.append(s, inp); box.appendChild(l);
-    });
-    $('#planStart').value = (draft.days[0] && draft.days[0].date) || '';
-    const w = draft.days.filter(d => d.warn).length;
-    $('#planInfo').textContent = draft.blank ? 'Lecture automatique impossible : saisis les horaires à la main (ex. 9h – 13h, ou Repos), puis valide.' : w ? `${w} jour${w > 1 ? 's' : ''} à vérifier (en rouge) : le total de la ligne est absent ou ne correspond pas aux horaires lus.` : 'Compare avec la capture, corrige si besoin, puis valide.';
-  }
-  async function openPlan(id) {
-    const it = await ensurePlan(id); if (!it) return;
-    planId = id; draft = JSON.parse(JSON.stringify(it.plan));
-    if (picUrl) URL.revokeObjectURL(picUrl);
-    $('#planPic').src = picUrl = URL.createObjectURL(it.blob);
-    $('#planInfo').textContent = 'Lecture automatique : compare avec la capture, corrige les cases fausses, puis valide.';
-    renderRows(); if (!planDlg.open) planDlg.showModal();
-  }
-  $('#planBtn').onclick = () => openPlan(currentId);
-  $('#planStart').onchange = e => {
-    if (!e.target.value) return; const s0 = fromIso(e.target.value);
-    draft.days.forEach((d, i) => { const x = new Date(s0); x.setDate(x.getDate() + i); d.date = iso(x); }); renderRows();
-  };
-  $('#planRe').onclick = async () => { const it = await getOne(planId), p = planFromRows(it); if (p) { draft = p; renderRows(); } else toast('Rien à relire pour l’instant', 3000); };
-  $('#planClose').onclick = () => planDlg.close();
-  $('#planOk').onclick = async () => {
-    const it = await getOne(planId); if (!it) return;
-    draft.verified = true; it.plan = draft;
-    const d0 = draft.days[0] && draft.days[0].date;
-    if (d0) {
-      const s0 = fromIso(d0), e = new Date(s0), f = n => String(n).padStart(2, '0'); e.setDate(e.getDate() + 6);
-      it.start = s0.getTime(); it.manualStart = true;
-      if (!it.custom) it.label = `Planning du ${f(s0.getDate())}/${f(s0.getMonth() + 1)} au ${f(e.getDate())}/${f(e.getMonth() + 1)}`;
-    }
-    await put(it); planDlg.close(); showImg = false; await refresh(planId); toast('Planning enregistré');
-  };
-  planDlg.addEventListener('click', e => { if (e.target === planDlg) planDlg.close(); });
-
   /* ---------- Démarrage ---------- */
   (async () => {
     await refresh();
@@ -1155,12 +972,6 @@
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   })();
 
-  if ('serviceWorker' in navigator) {
-    const hadCtl = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadCtl) toast('Nouvelle version prête', 15000, { label: 'Recharger', fn: () => location.reload() });
-    });
-  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 })();
 </script>
