@@ -222,7 +222,7 @@
   <p id="planInfo"></p>
   <label class="prow"><span>1er jour</span><input class="field" type="date" id="planStart"></label>
   <div id="planRows"></div>
-  <div class="row"><button class="primary" id="planOk">Valider</button><button class="secondary" id="planRe">Relire avec l’IA</button></div>
+  <div class="row"><button class="primary" id="planOk">Valider</button><button class="secondary" id="planRe">Relire</button></div>
   <p></p><button class="secondary" id="planClose">Fermer</button>
 </dialog>
 
@@ -522,7 +522,7 @@
       ids.push(lastId); n++;
     }
     if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
-      if (localStorage.getItem(KEY)) { for (const id of ids) await ensurePlan(id); openPlan(lastId); } else scanPending(); }
+      if (localStorage.getItem(KEY)) { for (const id of ids) await ensurePlan(id); openPlan(lastId); } else { await scanPending(); openPlan(lastId); } }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -895,6 +895,7 @@
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
     else if (startChanged) delete it.rows;
+    if (!it.plan && it.rows && it.start != null) it.plan = planFromRows(it) || undefined;
     await put(it);
     await refresh();
     if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
@@ -924,7 +925,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v24.0 · 25 oct. 2026';
+  const APP_VERSION = 'v24.1 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -1102,10 +1103,43 @@
       return null;
     }
   }
+
+  /* ---------- Lecture locale du planning (sans IA) ---------- */
+  const ROLE = { CAISS: 'Caisse' };
+  const hm = (h, m) => h + 'h' + (m ? String(m).padStart(2, '0') : '');
+  function parseDay(t) {
+    t = (t || '').replace(/[;,]/g, ':');
+    if (/r[eé]p[o0]s/i.test(t)) return { text: 'Repos', ok: true };
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})\s*([A-Za-zÉé]{3,})?/g;
+    const parts = [], roles = new Set(); let sum = 0, m;
+    while ((m = re.exec(t))) {
+      const a = +m[1], am = +m[2], b = +m[3], bm = +m[4];
+      if (a > 24 || b > 24 || am > 59 || bm > 59) continue;
+      let d = (b * 60 + bm) - (a * 60 + am); if (d < 0) d += 1440;
+      sum += d; parts.push(hm(a, am) + ' – ' + hm(b, bm));
+      if (m[5]) roles.add(ROLE[m[5].toUpperCase()] || m[5][0].toUpperCase() + m[5].slice(1).toLowerCase());
+    }
+    if (!parts.length) return { text: '?', ok: false };
+    const rest = t.replace(re, ' ').replace(/\d+\s*mn/gi, ' '), tot = [...rest.matchAll(/(\d{1,2})\s*:\s*(\d{2})/g)].pop();
+    const ok = !!tot && Math.abs(+tot[1] * 60 + +tot[2] - sum) <= 1;
+    return { text: parts.join(' · ') + (roles.size === 1 ? ' · ' + [...roles][0] : ''), ok };
+  }
+  function planFromRows(it) {
+    if (!it.rows || it.start == null) return null;
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(it.start); d.setDate(d.getDate() + i);
+      const r = it.rows[d.getDate()], p = parseDay(r && r.text);
+      days.push({ date: iso(d), text: p.text, warn: !p.ok });
+    }
+    return days.every(d => d.text === '?') ? null : { days, verified: false, auto: true };
+  }
   async function ensurePlan(id) {
     const it = await getOne(id); if (!it) return null;
     if (it.plan) return it;
-    const p = await aiRead(it); if (!p) return null;
+    let p = planFromRows(it);
+    if (!p && localStorage.getItem(KEY)) p = await aiRead(it);
+    if (!p) { toast('Planning pas encore lu : réessaie dans un instant', 3500); return null; }
     it.plan = p; await put(it); await refresh(); return it;
   }
   const planDlg = $('#planDlg'); let planId = null, draft = null, picUrl = null;
@@ -1114,10 +1148,12 @@
     draft.days.forEach(d => {
       const l = document.createElement('label'); l.className = 'prow';
       const s = document.createElement('span'); s.textContent = d.date ? fromIso(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }) : 'Jour';
-      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; inp.oninput = () => { d.text = inp.value; };
+      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; if (d.warn) inp.style.borderColor = 'var(--danger)'; inp.oninput = () => { d.text = inp.value; d.warn = false; inp.style.borderColor = ''; };
       l.append(s, inp); box.appendChild(l);
     });
     $('#planStart').value = (draft.days[0] && draft.days[0].date) || '';
+    const w = draft.days.filter(d => d.warn).length;
+    $('#planInfo').textContent = w ? `${w} jour${w > 1 ? 's' : ''} à vérifier (en rouge) : le total de la ligne ne correspond pas aux horaires lus.` : 'Compare avec la capture, corrige si besoin, puis valide.';
   }
   async function openPlan(id) {
     const it = await ensurePlan(id); if (!it) return;
@@ -1132,7 +1168,7 @@
     if (!e.target.value) return; const s0 = fromIso(e.target.value);
     draft.days.forEach((d, i) => { const x = new Date(s0); x.setDate(x.getDate() + i); d.date = iso(x); }); renderRows();
   };
-  $('#planRe').onclick = async () => { const it = await getOne(planId), p = await aiRead(it); if (p) { draft = p; renderRows(); } };
+  $('#planRe').onclick = async () => { const it = await getOne(planId), p = localStorage.getItem(KEY) ? await aiRead(it) : planFromRows(it); if (p) { draft = p; renderRows(); } else toast('Rien à relire pour l’instant', 3000); };
   $('#planClose').onclick = () => planDlg.close();
   $('#planOk').onclick = async () => {
     const it = await getOne(planId); if (!it) return;
