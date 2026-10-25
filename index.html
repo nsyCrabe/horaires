@@ -100,7 +100,6 @@
   dialog h2 { margin: 0 0 14px 4px; font-size: 1.3rem; letter-spacing: -.02em; }
   dialog h3 { margin: 0 0 6px; font-size: 1rem; }
   dialog section { margin-bottom: 12px; padding: 16px; border-radius: 20px; background: var(--panel); }
-  #rowsInfo { white-space: pre-line; font-size: .8rem; }
   dialog p { color: var(--muted); line-height: 1.5; margin: 0 0 12px; font-size: .92rem; }
   .secondary { background: var(--raised); padding: 12px 18px; border-radius: 14px; font-size: .95rem; font-weight: 600; }
   .secondary:active { filter: brightness(.9); }
@@ -196,24 +195,12 @@
     <button class="primary" id="install">Installer l'application</button>
   </section>
   <section>
-    <h3>Lecture par IA</h3>
-    <p>Colle ta clé API Anthropic : à chaque capture ajoutée, l’IA écrit le planning et tu le vérifies. La clé reste sur ce téléphone. La capture est envoyée à Anthropic pour être lue.</p>
-    <input class="field" type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off">
-    <button class="secondary" id="keySave">Enregistrer la clé</button>
-  </section>
-  <section>
     <h3>Sauvegarde</h3>
     <p>Enregistre toutes tes captures dans un fichier (à garder dans Drive, par exemple) pour les retrouver si le téléphone efface les données du navigateur.</p>
     <div class="row">
       <button class="secondary" id="export">Exporter</button>
       <button class="secondary" id="import">Importer</button>
     </div>
-  </section>
-  <section>
-    <h3>Dates des plannings</h3>
-    <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
-    <p id="rowsInfo"></p>
-    <button class="secondary" id="rescan">Relancer la détection</button>
   </section>
   <section>
     <h3>Mise à jour</h3>
@@ -529,7 +516,7 @@
       ids.push(lastId); n++;
     }
     if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
-      if (localStorage.getItem(KEY)) { for (const id of ids) await ensurePlan(id); openPlan(lastId); } else { await scanPending(); openPlan(lastId); } }
+      await scanPending(); openPlan(lastId); }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -915,7 +902,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v24.3 · 25 oct. 2026';
+  const APP_VERSION = 'v24.4 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -938,18 +925,7 @@
     await deferred.userChoice;
     deferred = null; updateInstall();
   };
-  $('#gear').onclick = () => {
-    updateInstall();
-    const cur = items.find(i => i.id === currentId);
-    let info = items.length ? 'Lignes repérées par planning :\n' + items.map(it => {
-      const w = weekInfo(it);
-      return (w && !it.custom ? w.short : it.label) + ' : ' + nbRows(it) + '/7' + (it.dbg ? ' (' + it.dbg + ')' : '');
-    }).join('\n') : '';
-    const target = cur;
-    if (target && target.dbgText) info += '\nTexte brut lu : ' + target.dbgText.replace(/\n+/g, ' / ');
-    $('#rowsInfo').textContent = info;
-    dlg.showModal();
-  };
+  $('#gear').onclick = () => { updateInstall(); dlg.showModal(); };
   $('#closeSet').onclick = () => dlg.close();
   $('#update').onclick = async () => {
     const b = $('#update');
@@ -972,10 +948,6 @@
     location.reload();
   };
   dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
-  $('#rescan').onclick = async () => {
-    for (const it of items) { it.rowsV = 0; await put(it); }
-    dlg.close(); scanPending();
-  };
   updateInstall();
 
   /* ---------- Sauvegarde : exporter / importer ---------- */
@@ -1037,7 +1009,7 @@
   (function tick() { setTimeout(() => { dayKey = new Date().toDateString(); refresh(); tick(); }, msToMidnight()); })();
 
   /* ---------- Planning écrit par l’IA ---------- */
-  const KEY = 'horaires-key', MODEL = 'claude-sonnet-5-5';
+  try { localStorage.removeItem('horaires-key'); } catch (e) {}
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const fromIso = t => { const [y, m, d] = t.split('-').map(Number); return new Date(y, m - 1, d); };
   function planToday(it) {
@@ -1084,37 +1056,6 @@
   }
   $('#toSheet').onclick = () => { showImg = false; render(); };
 
-  async function aiRead(it) {
-    const key = localStorage.getItem(KEY);
-    if (!key) { toast('Ajoute ta clé API dans les paramètres', 3500); return null; }
-    toast('Lecture du planning par l’IA…', 90000);
-    try {
-      const bmp = await createImageBitmap(it.blob), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
-      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0, c.width, c.height);
-      const data = c.toDataURL('image/jpeg', .9).split(',')[1];
-      const prompt = `Cette image est un planning de travail sur une semaine (une ligne par jour). Nous sommes le ${iso(new Date())}. Lis-le avec précision, sans rien inventer. Réponds uniquement par du JSON : {"days":[{"date":"AAAA-MM-JJ ou null","text":"horaires ou statut tels qu’écrits, par ex. 6h – 14h ou Repos"}]} avec une entrée par jour, dans l’ordre du tableau. Si un jour a plusieurs horaires, sépare-les par " · ". Si une case est illisible, écris "?".`;
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: MODEL, max_tokens: 1500, messages: [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }, { type: 'text', text: prompt }] }] })
-      });
-      if (!r.ok) throw new Error(r.status);
-      const j = await r.json(), txt = j.content.map(b => b.text || '').join('');
-      const o = JSON.parse(txt.replace(/```json|```/g, '').trim());
-      const days = (o.days || []).slice(0, 7).map(d => ({ date: /^\d{4}-\d\d-\d\d$/.test(d.date || '') ? d.date : null, text: String(d.text || '').slice(0, 80) }));
-      if (!days.length) throw new Error('vide');
-      const first = days.find(d => d.date);
-      if (first) { const i0 = days.indexOf(first), s0 = fromIso(first.date); days.forEach((d, i) => { const e = new Date(s0); e.setDate(e.getDate() + i - i0); d.date = iso(e); }); }
-      toast('Lecture terminée', 1500);
-      return { days, verified: false };
-    } catch (e) {
-      toast(String(e.message) === '401' ? 'Clé API refusée : vérifie-la dans les paramètres' : 'Lecture impossible (connexion ou clé ?)', 4000);
-      return null;
-    }
-  }
-
   /* ---------- Lecture locale du planning (sans IA) ---------- */
   const ROLE = { CAISS: 'Caisse' };
   const hm = (h, m) => h + 'h' + (m ? String(m).padStart(2, '0') : '');
@@ -1149,7 +1090,6 @@
     const it = await getOne(id); if (!it) return null;
     if (it.plan) return it;
     let p = planFromRows(it);
-    if (!p && localStorage.getItem(KEY)) p = await aiRead(it);
     if (!p) { toast('Planning pas encore lu : réessaie dans un instant', 3500); return null; }
     it.plan = p; await put(it); await refresh(); return it;
   }
@@ -1179,7 +1119,7 @@
     if (!e.target.value) return; const s0 = fromIso(e.target.value);
     draft.days.forEach((d, i) => { const x = new Date(s0); x.setDate(x.getDate() + i); d.date = iso(x); }); renderRows();
   };
-  $('#planRe').onclick = async () => { const it = await getOne(planId), p = localStorage.getItem(KEY) ? await aiRead(it) : planFromRows(it); if (p) { draft = p; renderRows(); } else toast('Rien à relire pour l’instant', 3000); };
+  $('#planRe').onclick = async () => { const it = await getOne(planId), p = planFromRows(it); if (p) { draft = p; renderRows(); } else toast('Rien à relire pour l’instant', 3000); };
   $('#planClose').onclick = () => planDlg.close();
   $('#planOk').onclick = async () => {
     const it = await getOne(planId); if (!it) return;
@@ -1192,8 +1132,6 @@
     }
     await put(it); planDlg.close(); showImg = false; await refresh(planId); toast('Planning enregistré');
   };
-  $('#apiKey').value = localStorage.getItem(KEY) || '';
-  $('#keySave').onclick = () => { const v = $('#apiKey').value.trim(); if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); toast(v ? 'Clé enregistrée' : 'Clé supprimée'); };
   planDlg.addEventListener('click', e => { if (e.target === planDlg) planDlg.close(); });
 
   /* ---------- Démarrage ---------- */
