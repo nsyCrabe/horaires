@@ -112,12 +112,34 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } dialog[open] { animation: none; } }
   #today .t2:empty { display: none; }
+  .icon-btn { width: 38px; height: 38px; }
+  #today.plan .tscroll { display: none; }
+  #sheet { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+  #sheet[hidden], #toSheet[hidden] { display: none; }
+  .day { display: flex; align-items: center; gap: 14px; padding: 13px 16px; border-radius: 18px; background: var(--panel); }
+  .day .dn { width: 66px; flex: none; line-height: 1.25; }
+  .day .dn b { display: block; font-size: 1rem; text-transform: capitalize; }
+  .day .dn span { font-size: .8rem; color: var(--muted); }
+  .day .dt { flex: 1; font-size: 1.2rem; font-weight: 700; line-height: 1.3; letter-spacing: -.01em; }
+  .day.today { background: var(--accent); color: var(--on-accent); }
+  .day.today .dn span { color: inherit; opacity: .8; }
+  #sheet .secondary, #toSheet { margin-top: 4px; }
+  #toSheet { margin: 0 14px 8px; padding: 10px; border-radius: 14px; background: var(--panel); font-weight: 650; font-size: .9rem; }
+  .field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; margin-bottom: 10px; }
+  .prow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .prow span { width: 76px; flex: none; font-size: .9rem; color: var(--muted); }
+  .prow .field { margin: 0; }
+  #planPic { width: 100%; max-height: 28vh; object-fit: contain; background: #fff; border-radius: 12px; margin-bottom: 12px; display: block; }
+  #planDlg .row { margin-top: 14px; }
 </style>
 </head>
 <body>
 
 <header>
   <h1 id="title">Mes horaires</h1>
+  <button class="icon-btn" id="planBtn" hidden aria-label="Planning écrit : lire et vérifier">
+    <svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+  </button>
   <button class="icon-btn" id="rename" hidden aria-label="Renommer cette semaine">
     <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
   </button>
@@ -137,6 +159,9 @@
   <span class="t2" id="todayHours"></span>
   <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
 </div>
+
+<button id="toSheet" hidden>← Planning écrit</button>
+<div id="sheet" hidden></div>
 
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
@@ -163,6 +188,12 @@
     <button class="primary" id="install">Installer l'application</button>
   </section>
   <section>
+    <h3>Lecture par IA</h3>
+    <p>Colle ta clé API Anthropic : à chaque capture ajoutée, l’IA écrit le planning et tu le vérifies. La clé reste sur ce téléphone. La capture est envoyée à Anthropic pour être lue.</p>
+    <input class="field" type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off">
+    <button class="secondary" id="keySave">Enregistrer la clé</button>
+  </section>
+  <section>
     <h3>Sauvegarde</h3>
     <p>Enregistre toutes tes captures dans un fichier (à garder dans Drive, par exemple) pour les retrouver si le téléphone efface les données du navigateur.</p>
     <div class="row">
@@ -183,6 +214,16 @@
   </section>
   <button class="secondary" id="closeSet">Fermer</button>
   <p class="version" id="version"></p>
+</dialog>
+
+<dialog id="planDlg" aria-labelledby="planTitle">
+  <h2 id="planTitle">Vérifie ton planning</h2>
+  <img id="planPic" alt="Capture du planning">
+  <p id="planInfo"></p>
+  <label class="prow"><span>1er jour</span><input class="field" type="date" id="planStart"></label>
+  <div id="planRows"></div>
+  <div class="row"><button class="primary" id="planOk">Valider</button><button class="secondary" id="planRe">Relire avec l’IA</button></div>
+  <p></p><button class="secondary" id="planClose">Fermer</button>
 </dialog>
 
 <dialog id="addDlg" aria-labelledby="addTitle">
@@ -229,7 +270,7 @@
   let items = [];
   let currentId = null;
   let url = null;
-  let renderToken = 0;
+  let renderToken = 0, showImg = false, shownId = null;
 
   const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
   const MOIS_LONG = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -372,6 +413,12 @@
     const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     $('#todayDay').textContent = "Aujourd'hui · " + day;
     todayBox.hidden = false;
+    const pt = planToday(it);
+    if (pt != null) {
+      todayBox.classList.remove('dim'); todayBox.classList.add('plan'); todayImg.removeAttribute('src');
+      $('#todayHours').classList.add('hrs'); $('#todayHours').textContent = pt || 'Rien de prévu'; return;
+    }
+    todayBox.classList.remove('plan');
     let u = null;
     try { u = it.rows ? await cropToday(it) : null; } catch (e) {}
     if (token !== todayToken) return;
@@ -430,6 +477,10 @@
     if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
 
     const cur = items.find(i => i.id === currentId);
+    if (cur && cur.id !== shownId) { shownId = cur.id; showImg = false; }
+    const ok = !!(cur && cur.plan && cur.plan.verified), useSheet = ok && !showImg;
+    $('#stage').style.display = useSheet ? 'none' : ''; $('#sheet').hidden = !useSheet; $('#toSheet').hidden = !(ok && showImg);
+    if (useSheet) renderSheet(cur);
     if (cur) {
       img.hidden = true;
       const token = ++renderToken;
@@ -450,27 +501,28 @@
       };
       empty.hidden = true;
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
-      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = false;
+      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = $('#planBtn').hidden = false;
     } else {
       ++renderToken;
       url = null;
       img.hidden = true; img.removeAttribute('src');
       empty.hidden = false;
       title.textContent = 'Mes horaires';
-      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = true;
+      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = $('#planBtn').hidden = true;
     }
   }
 
   /* ---------- Ajout / renommage / suppression ---------- */
   async function addFiles(files) {
-    let lastId = null, n = 0;
+    let lastId = null, n = 0; const ids = [];
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
       const when = f.lastModified || Date.now();
       lastId = await put({ blob: f, label: 'Planning du ' + fmtDate(when), added: Date.now() + n });
-      n++;
+      ids.push(lastId); n++;
     }
-    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); scanPending(); }
+    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
+      if (localStorage.getItem(KEY)) { for (const id of ids) await ensurePlan(id); openPlan(lastId); } else scanPending(); }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -858,7 +910,7 @@
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 7)
+        const todo = items.filter(i => (!i.scanned || i.rowsV !== 7) && !(i.plan && i.plan.verified))
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -872,7 +924,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v23.0 · 25 oct. 2026';
+  const APP_VERSION = 'v24.0 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -943,7 +995,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, plan: it.plan ?? null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -965,7 +1017,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: o.manualStart, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: o.manualStart, plan: o.plan ?? undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
         n++;
       }
       await refresh(lastId);
@@ -992,6 +1044,110 @@
 
   const msToMidnight = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5) - n; };
   (function tick() { setTimeout(() => { dayKey = new Date().toDateString(); refresh(); tick(); }, msToMidnight()); })();
+
+  /* ---------- Planning écrit par l’IA ---------- */
+  const KEY = 'horaires-key', MODEL = 'claude-sonnet-5-5';
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const fromIso = t => { const [y, m, d] = t.split('-').map(Number); return new Date(y, m - 1, d); };
+  function planToday(it) {
+    if (!(it.plan && it.plan.verified)) return null;
+    const d = it.plan.days.find(x => x.date === iso(new Date()));
+    return d ? (d.text || '') : null;
+  }
+  function renderSheet(cur) {
+    const sh = $('#sheet'), t = iso(new Date()); sh.innerHTML = '';
+    for (const d of cur.plan.days) {
+      const dt = d.date ? fromIso(d.date) : null, r = document.createElement('div');
+      r.className = 'day' + (d.date === t ? ' today' : '');
+      const n = document.createElement('div'); n.className = 'dn';
+      const b = document.createElement('b'); b.textContent = dt ? dt.toLocaleDateString('fr-FR', { weekday: 'long' }) : '';
+      const sp = document.createElement('span'); sp.textContent = dt ? dt.getDate() + ' ' + MOIS[dt.getMonth()] : '';
+      n.append(b, sp);
+      const x = document.createElement('div'); x.className = 'dt'; x.textContent = d.text || '—';
+      r.append(n, x); sh.appendChild(r);
+    }
+    const bt = document.createElement('button'); bt.className = 'secondary'; bt.textContent = 'Voir la capture';
+    bt.onclick = () => { showImg = true; render(); };
+    sh.appendChild(bt);
+  }
+  $('#toSheet').onclick = () => { showImg = false; render(); };
+
+  async function aiRead(it) {
+    const key = localStorage.getItem(KEY);
+    if (!key) { toast('Ajoute ta clé API dans les paramètres', 3500); return null; }
+    toast('Lecture du planning par l’IA…', 90000);
+    try {
+      const bmp = await createImageBitmap(it.blob), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0, c.width, c.height);
+      const data = c.toDataURL('image/jpeg', .9).split(',')[1];
+      const prompt = `Cette image est un planning de travail sur une semaine (une ligne par jour). Nous sommes le ${iso(new Date())}. Lis-le avec précision, sans rien inventer. Réponds uniquement par du JSON : {"days":[{"date":"AAAA-MM-JJ ou null","text":"horaires ou statut tels qu’écrits, par ex. 6h – 14h ou Repos"}]} avec une entrée par jour, dans l’ordre du tableau. Si un jour a plusieurs horaires, sépare-les par " · ". Si une case est illisible, écris "?".`;
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: MODEL, max_tokens: 1500, messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }, { type: 'text', text: prompt }] }] })
+      });
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json(), txt = j.content.map(b => b.text || '').join('');
+      const o = JSON.parse(txt.replace(/```json|```/g, '').trim());
+      const days = (o.days || []).slice(0, 7).map(d => ({ date: /^\d{4}-\d\d-\d\d$/.test(d.date || '') ? d.date : null, text: String(d.text || '').slice(0, 80) }));
+      if (!days.length) throw new Error('vide');
+      const first = days.find(d => d.date);
+      if (first) { const i0 = days.indexOf(first), s0 = fromIso(first.date); days.forEach((d, i) => { const e = new Date(s0); e.setDate(e.getDate() + i - i0); d.date = iso(e); }); }
+      toast('Lecture terminée', 1500);
+      return { days, verified: false };
+    } catch (e) {
+      toast(String(e.message) === '401' ? 'Clé API refusée : vérifie-la dans les paramètres' : 'Lecture impossible (connexion ou clé ?)', 4000);
+      return null;
+    }
+  }
+  async function ensurePlan(id) {
+    const it = await getOne(id); if (!it) return null;
+    if (it.plan) return it;
+    const p = await aiRead(it); if (!p) return null;
+    it.plan = p; await put(it); await refresh(); return it;
+  }
+  const planDlg = $('#planDlg'); let planId = null, draft = null, picUrl = null;
+  function renderRows() {
+    const box = $('#planRows'); box.innerHTML = '';
+    draft.days.forEach(d => {
+      const l = document.createElement('label'); l.className = 'prow';
+      const s = document.createElement('span'); s.textContent = d.date ? fromIso(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }) : 'Jour';
+      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; inp.oninput = () => { d.text = inp.value; };
+      l.append(s, inp); box.appendChild(l);
+    });
+    $('#planStart').value = (draft.days[0] && draft.days[0].date) || '';
+  }
+  async function openPlan(id) {
+    const it = await ensurePlan(id); if (!it) return;
+    planId = id; draft = JSON.parse(JSON.stringify(it.plan));
+    if (picUrl) URL.revokeObjectURL(picUrl);
+    $('#planPic').src = picUrl = URL.createObjectURL(it.blob);
+    $('#planInfo').textContent = 'Lecture automatique : compare avec la capture, corrige les cases fausses, puis valide.';
+    renderRows(); if (!planDlg.open) planDlg.showModal();
+  }
+  $('#planBtn').onclick = () => openPlan(currentId);
+  $('#planStart').onchange = e => {
+    if (!e.target.value) return; const s0 = fromIso(e.target.value);
+    draft.days.forEach((d, i) => { const x = new Date(s0); x.setDate(x.getDate() + i); d.date = iso(x); }); renderRows();
+  };
+  $('#planRe').onclick = async () => { const it = await getOne(planId), p = await aiRead(it); if (p) { draft = p; renderRows(); } };
+  $('#planClose').onclick = () => planDlg.close();
+  $('#planOk').onclick = async () => {
+    const it = await getOne(planId); if (!it) return;
+    draft.verified = true; it.plan = draft;
+    const d0 = draft.days[0] && draft.days[0].date;
+    if (d0) {
+      const s0 = fromIso(d0), e = new Date(s0), f = n => String(n).padStart(2, '0'); e.setDate(e.getDate() + 6);
+      it.start = s0.getTime(); it.manualStart = true;
+      if (!it.custom) it.label = `Planning du ${f(s0.getDate())}/${f(s0.getMonth() + 1)} au ${f(e.getDate())}/${f(e.getMonth() + 1)}`;
+    }
+    await put(it); planDlg.close(); showImg = false; await refresh(planId); toast('Planning enregistré');
+  };
+  $('#apiKey').value = localStorage.getItem(KEY) || '';
+  $('#keySave').onclick = () => { const v = $('#apiKey').value.trim(); if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); toast(v ? 'Clé enregistrée' : 'Clé supprimée'); };
+  planDlg.addEventListener('click', e => { if (e.target === planDlg) planDlg.close(); });
 
   /* ---------- Démarrage ---------- */
   (async () => {
