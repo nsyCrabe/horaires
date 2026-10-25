@@ -53,7 +53,7 @@
     box-shadow: 0 4px 18px rgba(76,141,255,.28);
   }
   #today[hidden] { display: none; }
-  #today .t1 { font-size: .78rem; font-weight: 600; opacity: .9; text-transform: capitalize; letter-spacing: .02em; }
+  #today .t1 { font-size: .78rem; font-weight: 600; opacity: .9; }
   #today .t2 { font-size: 1rem; font-weight: 650; line-height: 1.2; }
   #today .tscroll { overflow-x: auto; border-radius: 10px; background: #fff; margin-top: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   #today .tscroll::-webkit-scrollbar { display: none; }
@@ -110,6 +110,8 @@
     background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem;
     opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
   }
+  .tact { font-weight: 700; color: var(--accent); padding: 0 0 0 12px; }
+  .sr { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   dialog {
     border: 0; background: var(--panel); color: var(--text);
@@ -131,6 +133,7 @@
   #addDlg .primary { width: 100%; margin-bottom: 10px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+  #today .t2:empty { display: none; }
 </style>
 </head>
 <body>
@@ -139,6 +142,9 @@
   <h1 id="title">Mes horaires</h1>
   <button class="icon-btn" id="rename" hidden aria-label="Renommer cette semaine">
     <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+  </button>
+  <button class="icon-btn" id="setDate" hidden aria-label="Définir la date de début de ce planning">
+    <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
   </button>
   <button class="icon-btn danger" id="del" hidden aria-label="Supprimer cette semaine">
     <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
@@ -158,7 +164,7 @@
   <img id="img" alt="Planning de travail" hidden>
   <div id="empty">
     <h2>Aucun planning pour l'instant</h2>
-    <p>Ajoute la capture d'écran de tes horaires. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
+    <p>Ajoute la capture d'écran de tes horaires, ou partage-la vers l'appli depuis ta galerie. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
     <button class="primary" id="addEmpty">Ajouter une capture</button>
   </div>
 </main>
@@ -207,6 +213,7 @@
   <button class="secondary" id="addCancel">Annuler</button>
 </dialog>
 
+<input type="date" id="dateInput" class="sr" tabindex="-1" aria-hidden="true">
 <input type="file" id="backupFile" accept="application/json,.json" hidden>
 <input type="file" id="file" accept="image/*" multiple hidden>
 <div id="toast" role="status"></div>
@@ -263,8 +270,14 @@
     return { short, long, rel, n };
   }
   const fmtDate = ts => new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-  const toast = (msg, ms = 2200) => {
+  const toast = (msg, ms = 2200, act) => {
     const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    t.style.pointerEvents = act ? 'auto' : 'none';
+    if (act) {
+      const b = document.createElement('button'); b.className = 'tact'; b.textContent = act.label;
+      b.onclick = () => { t.classList.remove('show'); act.fn(); };
+      t.appendChild(b);
+    }
     clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms);
   };
 
@@ -354,6 +367,24 @@
     stripCache.set(key, u);
     return u;
   }
+  function hoursOf(it) {
+    const idx = highlightDay(it); if (idx == null) return '';
+    const d = new Date(it.start); d.setDate(d.getDate() + idx);
+    const t = (it.rows[d.getDate()] || {}).text || '';
+    const re = /(?<![\d:\/])(\d{1,2})\s*[:hH.]\s*(\d{2})?\s*[-–—]\s*(\d{1,2})\s*[:hH.]\s*(\d{2})?(?![\d\/])/g;
+    const f = (h, m) => h + 'h' + (m ? String(m).padStart(2, '0') : '');
+    const out = []; let m;
+    while ((m = re.exec(t)) && out.length < 2) {
+      const a = +m[1], am = +(m[2] || 0), b = +m[3], bm = +(m[4] || 0);
+      if (a > 24 || b > 24 || am > 59 || bm > 59) continue;
+      out.push(f(a, am) + ' – ' + f(b, bm));
+    }
+    return out.join(' · ');
+  }
+  function setHint(it) {
+    const big = todayBox.classList.contains('big'), hrs = hoursOf(it);
+    $('#todayHours').textContent = (hrs ? hrs + ' (lu automatiquement, vérifie ci-dessous)' : '') + (hrs ? '' : (big ? 'Touche pour réduire' : 'Touche pour agrandir'));
+  }
   async function renderToday() {
     const it = weekOfToday();
     const token = ++todayToken;
@@ -367,7 +398,7 @@
     todayBox.classList.toggle('dim', !u);
     if (u) {
       if (todayImg.getAttribute('src') !== u) todayImg.src = u;
-      $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+      setHint(it);
     } else {
       todayImg.removeAttribute('src');
       $('#todayHours').textContent = it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…';
@@ -379,7 +410,7 @@
     if (it.id !== currentId) { currentId = it.id; render(); return; }
     if (todayBox.classList.contains('dim')) return;
     todayBox.classList.toggle('big');
-    $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+    setHint(it);
     $('.tscroll').scrollLeft = 0;
   };
   todayBox.onclick = toggleToday;
@@ -439,14 +470,14 @@
       };
       empty.hidden = true;
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
-      btnRename.hidden = btnDel.hidden = false;
+      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = false;
     } else {
       ++renderToken;
       url = null;
       img.hidden = true; img.removeAttribute('src');
       empty.hidden = false;
       title.textContent = 'Mes horaires';
-      btnRename.hidden = btnDel.hidden = true;
+      btnRename.hidden = btnDel.hidden = $('#setDate').hidden = true;
     }
   }
 
@@ -473,8 +504,30 @@
   };
   btnDel.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
-    if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
+    await remove(cur.id); dropCache(cur.id); currentId = null; await refresh();
+    toast('« ' + cur.label + ' » supprimé', 7000, { label: 'Annuler', fn: async () => { await refresh(await put(cur)); } });
   };
+  /* Date de début définie à la main (quand la lecture automatique échoue) */
+  const dateInput = $('#dateInput');
+  $('#setDate').onclick = () => {
+    const cur = items.find(i => i.id === currentId); if (!cur) return;
+    const f = n => String(n).padStart(2, '0');
+    if (cur.start != null) { const d = new Date(cur.start); dateInput.value = `${d.getFullYear()}-${f(d.getMonth() + 1)}-${f(d.getDate())}`; } else dateInput.value = '';
+    try { dateInput.showPicker(); } catch (e) { dateInput.click(); }
+  };
+  dateInput.onchange = async () => {
+    const cur = items.find(i => i.id === currentId); if (!cur || !dateInput.value) return;
+    const [y, m, d] = dateInput.value.split('-').map(Number), s = new Date(y, m - 1, d), e = new Date(s);
+    e.setDate(e.getDate() + 6);
+    const f = n => String(n).padStart(2, '0');
+    cur.start = s.getTime(); cur.manualStart = true; delete cur.rows; cur.rowsV = 0;
+    if (!cur.custom) cur.label = `Planning du ${f(s.getDate())}/${f(s.getMonth() + 1)} au ${f(e.getDate())}/${f(e.getMonth() + 1)}`;
+    await put(cur); await refresh(cur.id); toast('Date enregistrée'); scanPending();
+  };
+  /* Glisser-déposer et coller une image */
+  addEventListener('dragover', e => e.preventDefault());
+  addEventListener('drop', e => { e.preventDefault(); addFiles([...e.dataTransfer.files]); });
+  addEventListener('paste', e => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) addFiles(fs); });
 
   /* ---------- Zoom, déplacement, double tap, clic pour agrandir ---------- */
   let sc = 1, px = 0, py = 0;
@@ -767,7 +820,7 @@
       let data2 = null;
       r = parseRange(data.text || '');
       if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }
-      okR = !!r && (!r.suspect || stale.start == null);
+      okR = !!r && !stale.manualStart && (!r.suspect || stale.start == null);
       const start = okR ? r.start : stale.start;
       if (start != null) {
         rows = rowsFromGrid(canvas, data, start);
@@ -839,7 +892,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.2 · 22 oct. 2026';
+  const APP_VERSION = 'v22.0 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -910,7 +963,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -932,7 +985,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: o.manualStart, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
         n++;
       }
       await refresh(lastId);
@@ -957,6 +1010,9 @@
     }
   });
 
+  const msToMidnight = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 5) - n; };
+  (function tick() { setTimeout(() => { dayKey = new Date().toDateString(); refresh(); tick(); }, msToMidnight()); })();
+
   /* ---------- Démarrage ---------- */
   (async () => {
     await refresh();
@@ -972,6 +1028,12 @@
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   })();
 
+  if ('serviceWorker' in navigator) {
+    const hadCtl = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadCtl) toast('Nouvelle version prête', 15000, { label: 'Recharger', fn: () => location.reload() });
+    });
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 })();
 </script>
