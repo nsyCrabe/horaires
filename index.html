@@ -925,7 +925,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v24.1 · 25 oct. 2026';
+  const APP_VERSION = 'v24.2 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -1110,13 +1110,13 @@
   function parseDay(t) {
     t = (t || '').replace(/[;,]/g, ':');
     if (/r[eé]p[o0]s/i.test(t)) return { text: 'Repos', ok: true };
-    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})\s*([A-Za-zÉé]{3,})?/g;
+    const re = /(\d{1,2})\s*[:.hH]\s*(\d{2})\s*[-–—~]\s*(\d{1,2})\s*[:.hH]\s*(\d{2})\s*([A-Za-zÉé]{3,})?(?:\s*(\d{1,3})\s*m[nm])?/g;
     const parts = [], roles = new Set(); let sum = 0, m;
     while ((m = re.exec(t))) {
       const a = +m[1], am = +m[2], b = +m[3], bm = +m[4];
       if (a > 24 || b > 24 || am > 59 || bm > 59) continue;
       let d = (b * 60 + bm) - (a * 60 + am); if (d < 0) d += 1440;
-      sum += d; parts.push(hm(a, am) + ' – ' + hm(b, bm));
+      sum += d; parts.push(hm(a, am) + ' – ' + hm(b, bm) + (m[6] && +m[6] <= 120 ? ' (pause ' + +m[6] + ' min)' : ''));
       if (m[5]) roles.add(ROLE[m[5].toUpperCase()] || m[5][0].toUpperCase() + m[5].slice(1).toLowerCase());
     }
     if (!parts.length) return { text: '?', ok: false };
