@@ -516,7 +516,7 @@
       ids.push(lastId); n++;
     }
     if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
-      await scanPending(); openPlan(lastId); }
+      await scanPending(); await waitScan(); openPlan(lastId); }
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -872,7 +872,7 @@
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
     else if (startChanged) delete it.rows;
-    if (!it.plan && it.rows && it.start != null) it.plan = planFromRows(it) || undefined;
+    if ((!it.plan || !it.plan.verified) && it.rows && it.start != null) it.plan = planFromRows(it) || undefined;
     await put(it);
     await refresh();
     if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
@@ -902,7 +902,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v24.4 · 25 oct. 2026';
+  const APP_VERSION = 'v24.5 · 25 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -1086,11 +1086,17 @@
     }
     return days.every(d => d.text === '?') ? null : { days, verified: false, auto: true };
   }
+  const waitScan = async () => { for (let i = 0; i < 240 && scanning; i++) await new Promise(r => setTimeout(r, 250)); };
   async function ensurePlan(id) {
     const it = await getOne(id); if (!it) return null;
     if (it.plan) return it;
-    let p = planFromRows(it);
-    if (!p) { toast('Planning pas encore lu : réessaie dans un instant', 3500); return null; }
+    const p = planFromRows(it);
+    if (!p) {
+      if (scanning) { toast('Lecture en cours, patiente quelques secondes…', 3000); return null; }
+      const t = new Date(), s0 = it.start != null ? new Date(it.start) : new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7));
+      it.plan = { blank: true, verified: false, days: Array.from({ length: 7 }, (_, i) => { const d = new Date(s0); d.setDate(d.getDate() + i); return { date: iso(d), text: '', warn: true }; }) };
+      return it;
+    }
     it.plan = p; await put(it); await refresh(); return it;
   }
   const planDlg = $('#planDlg'); let planId = null, draft = null, picUrl = null;
@@ -1099,12 +1105,12 @@
     draft.days.forEach(d => {
       const l = document.createElement('label'); l.className = 'prow';
       const s = document.createElement('span'); s.textContent = d.date ? fromIso(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }) : 'Jour';
-      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; if (d.warn) inp.style.borderColor = 'var(--danger)'; inp.oninput = () => { d.text = inp.value; d.warn = false; inp.style.borderColor = ''; };
+      const inp = document.createElement('input'); inp.className = 'field'; inp.value = d.text; inp.placeholder = '9h – 13h, ou Repos'; if (d.warn) inp.style.borderColor = 'var(--danger)'; inp.oninput = () => { d.text = inp.value; d.warn = false; inp.style.borderColor = ''; };
       l.append(s, inp); box.appendChild(l);
     });
     $('#planStart').value = (draft.days[0] && draft.days[0].date) || '';
     const w = draft.days.filter(d => d.warn).length;
-    $('#planInfo').textContent = w ? `${w} jour${w > 1 ? 's' : ''} à vérifier (en rouge) : le total de la ligne ne correspond pas aux horaires lus.` : 'Compare avec la capture, corrige si besoin, puis valide.';
+    $('#planInfo').textContent = draft.blank ? 'Lecture automatique impossible : saisis les horaires à la main (ex. 9h – 13h, ou Repos), puis valide.' : w ? `${w} jour${w > 1 ? 's' : ''} à vérifier (en rouge) : le total de la ligne est absent ou ne correspond pas aux horaires lus.` : 'Compare avec la capture, corrige si besoin, puis valide.';
   }
   async function openPlan(id) {
     const it = await ensurePlan(id); if (!it) return;
