@@ -70,6 +70,13 @@
   #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
   #today.dim .t2 { font-weight: 600; color: var(--muted); }
   #today.dim .tscroll { display: none; }
+  #today .t2{font-size:1.5rem;line-height:1.3}
+  #todayDetails{font-size:.87rem;line-height:1.5;opacity:.95}
+  #tomorrowInfo{margin:0 12px 8px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:.9rem}
+  #stage[hidden],#captureControls[hidden],#today[hidden],#tomorrowInfo[hidden]{display:none}
+  #captureControls{padding:0 12px 8px;display:flex;gap:8px;align-items:center}
+  #captureControls .secondary{flex:1;padding:10px}
+  #captureStatus{color:var(--muted);font-size:.78rem;flex:2}
   #countdown[hidden],#shiftTimes[hidden]{display:none}
   #countdown{margin:0 12px 8px;padding:12px;border:1px solid var(--accent);border-radius:12px;font-weight:650;text-align:center}
   .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
@@ -166,11 +173,14 @@
 <div id="today" class="big" hidden role="button" tabindex="0" aria-live="polite">
   <span class="t1" id="todayDay"></span>
   <span class="t2" id="todayHours"></span>
+  <span id="todayDetails"></span>
   <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
 </div>
 
+<div id="tomorrowInfo" hidden></div>
 <div id="countdown" hidden></div>
 <div class="row" style="padding:0 12px 8px"><button class="secondary" id="openCalendar" style="flex:1">Calendrier</button><button class="secondary" id="openShifts" style="flex:1">Modifier les horaires</button></div>
+<div id="captureControls" hidden><span id="captureStatus"></span><button class="secondary" id="toggleCapture" type="button">Voir la capture</button></div>
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
   <div id="empty">
@@ -401,6 +411,20 @@
   const shiftFor=d=>{const it=planFor(d);return it&&it.shifts&&it.shifts[keyDate(d)]||null;};
   const mins=t=>{const m=/^(\d{2}):(\d{2})$/.exec(t||'');return m?+m[1]*60 + +m[2]:null;};
   let editKey='',calendarMonth=new Date();
+  const weekComplete=it=>{
+    if(!it||it.start==null||!it.shifts)return false;
+    const start=new Date(it.start);
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(d.getDate()+i);if(!it.shifts[keyDate(d)])return false;}
+    return true;
+  };
+  const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':sh.start+' – '+sh.end;
+  const durationLabel=sh=>{
+    if(!sh||sh.off)return '';
+    const a=mins(sh.start),b=mins(sh.end);
+    if(a==null||b==null)return '';
+    const total=(b<=a?b+1440:b)-a-(Number(sh.breakMinutes)||0);
+    return Math.floor(total/60)+' h '+String(total%60).padStart(2,'0');
+  };
   /* Suggestions OCR uniquement : jamais enregistrées sans confirmation */
   function ocrShiftProposal(text){
     if(!text)return null;
@@ -455,7 +479,9 @@
     const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
     if(!off&&(a==null||b==null||!Number.isInteger(br)||br<0||br>=duration||duration>960))return toast('Vérifie les heures et la pause',3500);
     const fresh=await getOne(it.id);fresh.shifts=fresh.shifts||{};
+    const wasComplete=weekComplete(fresh);
     fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br};
+    if(!wasComplete&&weekComplete(fresh)&&fresh.captureHidden===undefined)fresh.captureHidden=true;
     await put(fresh);$('#shiftDlg').close();await refresh(fresh.id);
     if($('#calendarDlg').open)renderCalendar();toast('Horaires enregistrés');
   };
@@ -533,38 +559,37 @@
     return u;
   }
   async function renderToday() {
-    const it = weekOfToday();
-    const token = ++todayToken;
-    if (!it) { todayBox.hidden = true; return; }
-    const day = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#todayDay').textContent = "Aujourd'hui · " + day;
-    todayBox.hidden = false;
-    let u = null;
-    try { u = it.rows ? await cropToday(it) : null; } catch (e) {}
-    if (token !== todayToken) return;
-    todayBox.classList.toggle('dim', !u);
-    if (u) {
-      if (todayImg.getAttribute('src') !== u) todayImg.src = u;
-      const sh=shiftFor(new Date());
-      $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir');
-    } else {
-      todayImg.removeAttribute('src');
-      const sh=shiftFor(new Date());
-      $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…');
-    }
+    const it=weekOfToday(),token=++todayToken,now=new Date();
+    const tomorrow=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);
+    const next=shiftFor(tomorrow);
+    $('#tomorrowInfo').hidden=!next;
+    if(next)$('#tomorrowInfo').textContent='Demain · '+shiftDescription(next);
+    if(!it){todayBox.hidden=true;return;}
+    const sh=shiftFor(now);
+    $('#todayDay').textContent="Aujourd'hui · "+now.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+    todayBox.hidden=false;
+    $('#todayHours').textContent=shiftDescription(sh);
+    $('#todayDetails').textContent=sh?(sh.off?'Profite de ta journée !':'Pause : '+(sh.breakMinutes||0)+' min · Travail : '+durationLabel(sh)):'Renseigne tes horaires via « Modifier les horaires »';
+    // La capture reste disponible sur demande, même quand les 7 jours sont validés.
+    const selected=items.find(x=>x.id===currentId);
+    const showImage=!selected||!weekComplete(selected)||!selected.captureHidden;
+    const canCrop=showImage&&!weekComplete(it)&&!!it.rows;
+    let u=null;
+    if(canCrop){try{u=await cropToday(it);}catch(e){}}
+    if(token!==todayToken)return;
+    todayBox.classList.toggle('dim',!u);
+    if(u){if(todayImg.getAttribute('src')!==u)todayImg.src=u;}
+    else todayImg.removeAttribute('src');
   }
-  const toggleToday = () => {
-    const it = weekOfToday();
-    if (!it) return;
-    if (it.id !== currentId) { currentId = it.id; render(); return; }
-    if (todayBox.classList.contains('dim')) return;
+  const toggleToday=()=>{
+    const it=weekOfToday();
+    if(it&&it.id!==currentId){currentId=it.id;render();return;}
+    if(todayBox.classList.contains('dim'))return;
     todayBox.classList.toggle('big');
-    const sh=shiftFor(new Date());
-    $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir');
-    $('.tscroll').scrollLeft = 0;
+    $('.tscroll').scrollLeft=0;
   };
-  todayBox.onclick = toggleToday;
-  todayBox.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleToday(); } };
+  todayBox.onclick=toggleToday;
+  todayBox.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleToday();}};
 
   async function refresh(selectId) {
     items = (await getAll()).sort((a, b) => (a.start ?? a.added) - (b.start ?? b.added));
@@ -601,6 +626,12 @@
     if (active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
 
     const cur = items.find(i => i.id === currentId);
+    const complete=weekComplete(cur);
+    const hiddenCapture=complete&&cur.captureHidden!==false;
+    $('#captureControls').hidden=!complete;
+    $('#captureStatus').textContent=complete?(hiddenCapture?'Semaine complète · capture masquée':'Semaine complète · capture visible'):'';
+    $('#toggleCapture').textContent=hiddenCapture?'Voir la capture':'Masquer la capture';
+    stage.hidden=hiddenCapture;
     if (cur) {
       img.hidden = true;
       const token = ++renderToken;
@@ -623,6 +654,7 @@
       const wi = weekInfo(cur); title.textContent = !cur.custom && wi ? wi.long : cur.label;
       btnRename.hidden = btnDel.hidden = false;
     } else {
+      stage.hidden=false;
       ++renderToken;
       url = null;
       img.hidden = true; img.removeAttribute('src');
@@ -631,6 +663,14 @@
       btnRename.hidden = btnDel.hidden = true;
     }
   }
+
+  $('#toggleCapture').onclick=async()=>{
+    const cur=items.find(i=>i.id===currentId);
+    if(!weekComplete(cur))return;
+    const fresh=await getOne(cur.id);
+    fresh.captureHidden=!(fresh.captureHidden!==false);
+    await put(fresh);await refresh(cur.id);
+  };
 
   /* ---------- Détection des captures identiques ---------- */
   const digest = async blob => {
@@ -1081,7 +1121,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.5 · 27 oct. 2026';
+  const APP_VERSION = 'v21.6 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -1152,7 +1192,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, imageHash: it.imageHash || null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, shifts: it.shifts || {}, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, imageHash: it.imageHash || null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, shifts: it.shifts || {}, captureHidden: it.captureHidden, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -1174,7 +1214,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: !!o.manualStart, imageHash: o.imageHash || undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0, shifts: o.shifts && typeof o.shifts === 'object' ? o.shifts : {} });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: !!o.manualStart, imageHash: o.imageHash || undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0, shifts: o.shifts && typeof o.shifts === 'object' ? o.shifts : {}, captureHidden: typeof o.captureHidden==='boolean'?o.captureHidden:undefined });
         n++;
       }
       await refresh(lastId);
