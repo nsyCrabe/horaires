@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Mes horaires</title>
 <style>
-  :root {
+  :root { color-scheme:dark;
     --bg: #0f1115;
     --panel: #181b21;
     --line: #2a2e37;
@@ -20,6 +20,14 @@
     --accent: #4c8dff;
     --danger: #ff6b5e;
   }
+  :root[data-theme="light"]{color-scheme:light;--bg:#f5f7fb;--panel:#fff;--line:#d9e0eb;--text:#192231;--muted:#64748b;--danger:#d23e36}
+  :root[data-accent="violet"]{--accent:#8061df}
+  :root[data-accent="green"]{--accent:#168b67}
+  :root[data-accent="orange"]{--accent:#c76b24}
+  :root[data-accent="pink"]{--accent:#c04582}
+  :root[data-theme="light"] #today{color:#fff}
+  :root[data-theme="light"] .chip[aria-current="true"]{color:#fff}
+  :root[data-theme="light"] #add{color:#fff}
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -195,6 +203,12 @@
     </div>
   </section>
   <section>
+    <h3>Apparence</h3>
+    <p>Personnalise le thème et la couleur principale, sans toucher à tes plannings.</p>
+    <label class="shift-field">Thème<select id="themeMode"><option value="dark">Sombre</option><option value="light">Clair</option><option value="auto">Automatique (téléphone)</option></select></label>
+    <label class="shift-field">Couleur principale<select id="accentMode"><option value="blue">Bleu</option><option value="violet">Violet</option><option value="green">Vert</option><option value="orange">Orange</option><option value="pink">Rose</option></select></label>
+  </section>
+  <section>
     <h3>Dates des plannings</h3>
     <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
     <p id="rowsInfo"></p>
@@ -215,6 +229,11 @@
 <label class="shift-field">Journée<select id="shiftStatus"><option value="work">Travail</option><option value="off">Repos</option></select></label>
 <div class="row" id="shiftTimes"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="5" value="0" id="shiftBreak"></label></div>
 <p>Une fin antérieure au début correspond à une fin après minuit.</p>
+<div id="ocrProposal" hidden style="padding:12px;margin:10px 0;border:1px solid var(--accent);border-radius:12px">
+  <strong>Horaires détectés sur la capture</strong>
+  <p id="ocrProposalText" style="margin:6px 0">Vérifie avant d'enregistrer.</p>
+  <button class="secondary" id="useOcrProposal">Utiliser cette proposition</button>
+</div>
 <div class="row"><button class="primary" id="saveShift">Enregistrer</button><button class="secondary" id="deleteShift">Effacer</button><button class="secondary" id="cancelShift">Annuler</button></div>
 </dialog>
 <dialog id="calendarDlg" aria-labelledby="calendarTitle">
@@ -247,6 +266,24 @@
   const stage = $('#stage'), img = $('#img'), empty = $('#empty');
   const chips = $('#chips'), title = $('#title'), fileInput = $('#file');
   const btnRename = $('#rename'), btnDel = $('#del');
+  /* Préférences indépendantes des données IndexedDB */
+  const themeKey='horaires_theme_v1',accentKey='horaires_accent_v1';
+  const modes=['dark','light','auto'],accents=['blue','violet','green','orange','pink'];
+  const mediaDark=matchMedia('(prefers-color-scheme: dark)');
+  function applyAppearance(){
+    const mode=modes.includes(localStorage.getItem(themeKey))?localStorage.getItem(themeKey):'dark';
+    const accent=accents.includes(localStorage.getItem(accentKey))?localStorage.getItem(accentKey):'blue';
+    document.documentElement.dataset.theme=mode==='auto'?(mediaDark.matches?'dark':'light'):mode;
+    document.documentElement.dataset.accent=accent;
+    const color=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    document.querySelector('meta[name="theme-color"]').content=color;
+    if($('#themeMode'))$('#themeMode').value=mode;
+    if($('#accentMode'))$('#accentMode').value=accent;
+  }
+  mediaDark.addEventListener('change',applyAppearance);
+  $('#themeMode').onchange=e=>{localStorage.setItem(themeKey,e.target.value);applyAppearance();};
+  $('#accentMode').onchange=e=>{localStorage.setItem(accentKey,e.target.value);applyAppearance();};
+  applyAppearance();
 
   /* ---------- Stockage (IndexedDB) ---------- */
   const dbp = new Promise((res, rej) => {
@@ -364,6 +401,32 @@
   const shiftFor=d=>{const it=planFor(d);return it&&it.shifts&&it.shifts[keyDate(d)]||null;};
   const mins=t=>{const m=/^(\d{2}):(\d{2})$/.exec(t||'');return m?+m[1]*60 + +m[2]:null;};
   let editKey='',calendarMonth=new Date();
+  /* Suggestions OCR uniquement : jamais enregistrées sans confirmation */
+  function ocrShiftProposal(text){
+    if(!text)return null;
+    const matches=[...text.matchAll(/(?:^|[^\d])([01]?\d|2[0-3])\s*[:hH.]\s*([0-5]\d)(?!\d)/g)]
+      .map(m=>String(+m[1]).padStart(2,'0')+':'+m[2]);
+    if(matches.length!==2)return null;
+    const a=mins(matches[0]),b=mins(matches[1]),duration=b<=a?b+1440-a:b-a;
+    if(duration<60||duration>960)return null;
+    return {start:matches[0],end:matches[1],breakMinutes:0};
+  }
+  function proposalFor(d){
+    const it=planFor(d);
+    return it&&it.rows&&it.rows[d.getDate()]?ocrShiftProposal(it.rows[d.getDate()].text):null;
+  }
+  function showProposal(){
+    const suggestion=proposalFor(fromKey(editKey)),existing=shiftFor(fromKey(editKey));
+    $('#ocrProposal').hidden=!suggestion||!!existing;
+    if(suggestion)$('#ocrProposalText').textContent=suggestion.start+' – '+suggestion.end+' (pause à vérifier)';
+  }
+  $('#useOcrProposal').onclick=()=>{
+    const p=proposalFor(fromKey(editKey));if(!p)return;
+    $('#shiftStatus').value='work';$('#shiftTimes').hidden=false;
+    $('#shiftStart').value=p.start;$('#shiftEnd').value=p.end;$('#shiftBreak').value=0;
+    $('#ocrProposal').hidden=true;
+    toast('Vérifie les horaires puis enregistre');
+  };
   function fillShift(){
     const sh=shiftFor(fromKey(editKey));
     $('#shiftDate').value=editKey;
@@ -372,6 +435,7 @@
     $('#shiftEnd').value=sh&&!sh.off?sh.end:'';
     $('#shiftBreak').value=sh&&!sh.off?sh.breakMinutes||0:0;
     $('#shiftTimes').hidden=$('#shiftStatus').value==='off';
+    showProposal();
   }
   function openShift(d){
     if(!planFor(d))return toast('Aucun planning pour cette semaine');
@@ -1017,7 +1081,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.4 · 27 oct. 2026';
+  const APP_VERSION = 'v21.5 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
