@@ -261,6 +261,7 @@ dialog .secondary{background:var(--bg)}
   <div id="scanStatus" role="status" aria-live="polite" style="margin:12px 2px 0;color:var(--muted);font-size:.84rem" hidden></div>
   <div class="v2-actions">
     <button class="secondary" id="reviewWeek">✦ Vérifier ma semaine</button>
+    <button class="secondary" id="pastePlanning">▤ Coller le texte (Lens)</button>
     <button class="secondary" id="openCalendar">▦ Calendrier</button>
     <button class="secondary" id="openShifts">＋ Modifier un jour</button>
   </div>
@@ -337,6 +338,14 @@ dialog .secondary{background:var(--bg)}
   <button class="secondary" id="useOcrProposal">Utiliser cette proposition</button>
 </div>
 <div class="row"><button class="primary" id="saveShift">Enregistrer</button><button class="secondary" id="deleteShift">Effacer</button><button class="secondary" id="cancelShift">Annuler</button></div>
+</dialog>
+<dialog id="lensDlg" aria-labelledby="lensTitle">
+<h2 id="lensTitle">Importer depuis Google Lens</h2>
+<p>Dans Google Photos, ouvre ta capture, touche Lens, sélectionne tout le texte puis « Copier ». Colle-le ici : aucun serveur ni clé API nécessaire.</p>
+<label for="lensText">Texte du planning</label>
+<textarea id="lensText" rows="9" style="width:100%;margin:10px 0;padding:12px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px" placeholder="Du 26/10/2026 au 01/11/2026&#10;L 26 08:30-16:30 CAISS 24mn&#10;M 27 Repos&#10;..."></textarea>
+<p id="lensError" role="status" style="color:var(--muted)"></p>
+<div class="row"><button class="primary" id="lensParse">Lire les horaires</button><button class="secondary" id="lensCancel">Annuler</button></div>
 </dialog>
 <dialog id="reviewDlg" aria-labelledby="reviewTitle">
 <h2 id="reviewTitle">Vérifier la semaine</h2>
@@ -560,6 +569,28 @@ dialog .secondary{background:var(--bg)}
     return p&&p.type==='work'?p:null;
   }
   function ocrDayGuess(text){return parseShiftLine(text);}
+  // Le texte copié depuis Lens peut être sur une seule ligne ou plusieurs.
+  function parseLensDays(text,start){
+    const cleaned=text.replace(/[–—−]/g,'-').replace(/\r/g,'\n');
+    const expected=[];
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(d.getDate()+i);expected.push({n:d.getDate(),letter:'LMMJVSD'[i]});}
+    const candidates=[];
+    const re=/(?:^|[\n\s])([LMMJVSD])\s*(\d{1,2})(?=\s|$)/gi;
+    let m;
+    while((m=re.exec(cleaned))){
+      const idx=expected.findIndex((x,i)=>x.n===+m[2]&&x.letter===m[1].toUpperCase());
+      if(idx>=0)candidates.push({idx,pos:m.index+m[0].indexOf(m[1]),end:re.lastIndex});
+    }
+    const result={};
+    for(let i=0;i<candidates.length;i++){
+      const cur=candidates[i],next=candidates[i+1];
+      const fragment=cleaned.slice(cur.end,next?next.pos:cleaned.length).trim();
+      const d=new Date(start);d.setDate(d.getDate()+cur.idx);
+      const key=d.getDate();
+      if(!result[key]||fragment.length>result[key].length)result[key]=fragment;
+    }
+    return result;
+  }
   let reviewId=null;
   const scanStatus=message=>{const el=$('#scanStatus');el.hidden=!message;el.textContent=message||'';};
   const weekStartFor=it=>it.start!=null?new Date(it.start):null;
@@ -604,6 +635,30 @@ dialog .secondary{background:var(--bg)}
     $('#reviewWarning').textContent='';
     $('#reviewDlg').showModal();
   }
+  $('#pastePlanning').onclick=()=>{$('#lensError').textContent='';$('#lensDlg').showModal();};
+  $('#lensCancel').onclick=()=>$('#lensDlg').close();
+  $('#lensParse').onclick=async()=>{
+    const text=$('#lensText').value.trim();
+    if(!text){$('#lensError').textContent='Colle le texte copié depuis Google Lens.';return;}
+    const it=items.find(x=>x.id===currentId);
+    if(!it){$('#lensError').textContent='Ajoute d’abord ta capture avec le bouton +.';return;}
+    const range=parseRange(text);
+    const start=range?range.start:it.start;
+    if(start==null){$('#lensError').textContent='Date de la semaine introuvable. Copie aussi la ligne « Du JJ/MM/AAAA au JJ/MM/AAAA », ou corrige la date du planning.';return;}
+    const days=parseLensDays(text,start);
+    const detected=Object.values(days).filter(x=>parseShiftLine(x)).length;
+    if(!detected){$('#lensError').textContent='Aucune journée reconnue. Vérifie que le texte contient les jours (L 26, M 27…) et les horaires.';return;}
+    const fresh=await getOne(it.id);
+    if(!fresh)return;
+    if(fresh.start==null&&!fresh.manualStart)fresh.start=start;
+    fresh.rows=fresh.rows||{};
+    for(const [day,line] of Object.entries(days))fresh.rows[day]={...(fresh.rows[day]||{y0:0,y1:0}),text:line};
+    fresh.dbg='Texte importé depuis Google Lens : '+detected+' jours reconnus';
+    await put(fresh);await refresh(fresh.id);
+    $('#lensDlg').close();
+    scanStatus(detected+'/7 journées lues depuis Google Lens. Vérifie les propositions avant validation.');
+    openReview(fresh.id);
+  };
   $('#reviewWeek').onclick=async()=>{
     const it=items.find(x=>x.id===currentId);
     if(!it)return toast('Ajoute une capture pour commencer');
@@ -1370,7 +1425,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.2.1 · 27 oct. 2026';
+  const APP_VERSION = 'v2.3 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
