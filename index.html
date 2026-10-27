@@ -258,6 +258,7 @@ dialog .secondary{background:var(--bg)}
     <div id="tomorrowInfo" hidden></div>
     <div id="countdown" hidden></div>
   </section>
+  <div id="scanStatus" role="status" aria-live="polite" style="margin:12px 2px 0;color:var(--muted);font-size:.84rem" hidden></div>
   <div class="v2-actions">
     <button class="secondary" id="reviewWeek">✦ Vérifier ma semaine</button>
     <button class="secondary" id="openCalendar">▦ Calendrier</button>
@@ -543,9 +544,18 @@ dialog .secondary{background:var(--bg)}
     return null;
   }
   let reviewId=null;
+  const scanStatus=message=>{const el=$('#scanStatus');el.hidden=!message;el.textContent=message||'';};
+  const weekStartFor=it=>it.start!=null?new Date(it.start):null;
+  function openWeekDateFor(id){
+    const it=items.find(x=>x.id===id);if(!it)return;
+    currentId=it.id;
+    const d=it.start!=null?new Date(it.start):monday(new Date());
+    $('#weekDate').value=keyDate(d);dateDlg.showModal();
+  }
   function openReview(id,auto=false){
     const it=items.find(x=>x.id===id);
-    if(!it||it.start==null){if(!auto)toast('Corrige d’abord la date de la semaine');return;}
+    if(!it)return;
+    if(it.start==null){scanStatus('Dates non reconnues. Indique le lundi de cette semaine pour analyser les 7 jours.');if(!auto)openWeekDateFor(id);return;}
     if($('#reviewDlg').open)return;
     reviewId=id;
     const root=$('#reviewRows');root.replaceChildren();
@@ -576,7 +586,17 @@ dialog .secondary{background:var(--bg)}
     $('#reviewWarning').textContent='';
     $('#reviewDlg').showModal();
   }
-  $('#reviewWeek').onclick=()=>openReview(currentId);
+  $('#reviewWeek').onclick=async()=>{
+    const it=items.find(x=>x.id===currentId);
+    if(!it)return toast('Ajoute une capture pour commencer');
+    if(it.start==null)return openWeekDateFor(it.id);
+    if(!it.rows||!Object.values(it.rows).some(x=>x.text)){
+      scanStatus('Analyse de la capture en cours…');
+      const result=await scanOne(it,{review:false});
+      if(result.fatal||result.failed){scanStatus('La lecture OCR a échoué. Vérifie ta connexion, puis réessaie.');return;}
+    }
+    openReview(it.id);
+  };
   $('#closeReview').onclick=()=>$('#reviewDlg').close();
   $('#confirmWeek').onclick=async()=>{
     const it=items.find(x=>x.id===reviewId);if(!it)return;
@@ -942,7 +962,8 @@ dialog .secondary{background:var(--bg)}
     dropCache(cur.id);
     dateDlg.close();
     await refresh(cur.id);
-    toast('Semaine corrigée');
+    toast('Semaine corrigée · nouvelle lecture en cours');
+    scanStatus('Date enregistrée. Lecture des horaires en cours…');
     scanPending();
   };
 
@@ -1215,15 +1236,17 @@ dialog .secondary{background:var(--bg)}
   }
   const nbRows = it => it && it.rows ? Object.keys(it.rows).length : 0;
 
-  async function scanOne(stale) {
+  async function scanOne(stale,options={}) {
     const OUT = { text: true, blocks: true, tsv: true };
     const first = !stale.scanned;
     let w;
     try {
-      if (first) toast('Lecture des dates…', 60000);
+      scanStatus('Lecture du planning en cours…');
+      if (first) toast('Lecture du planning…', 4500);
       w = await getWorker();
     } catch (e) {
-      if (first) toast('Détection impossible (connexion ?). Tu peux renommer à la main.', 3500);
+      scanStatus('Impossible de charger la reconnaissance de texte. Vérifie ta connexion et réessaie.');
+      toast('OCR indisponible : vérifie ta connexion',3500);
       return { fatal: true };
     }
     let r, rows = null, okR = false, dbg = '', rawText = '';
@@ -1270,6 +1293,8 @@ dialog .secondary{background:var(--bg)}
         const f = await getOne(stale.id);
         if (f) { f.dbg = 'erreur : ' + ((e && e.message) || e); await put(f); }
       } catch (e2) {}
+      scanStatus('Erreur pendant la lecture de la capture. Relance la détection.');
+      toast('Échec de lecture de la capture',3500);
       return { failed: true };
     }
     const it = (await getOne(stale.id)) || stale;
@@ -1282,8 +1307,15 @@ dialog .secondary{background:var(--bg)}
     else if (startChanged) delete it.rows;
     await put(it);
     await refresh();
-    if(first&&it.start!=null&&rows&&!weekComplete(it))openReview(it.id,true);
-    if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
+    if(it.start==null){
+      scanStatus('Dates non reconnues : indique le lundi de la semaine pour continuer.');
+      if(first&&options.review!==false)openWeekDateFor(it.id);
+    }else{
+      const readable=it.rows&&Object.values(it.rows).filter(x=>x.text&&x.text.trim()).length||0;
+      scanStatus(readable?'Lecture terminée : '+readable+'/7 lignes contenant du texte. Vérifie les horaires proposés.':'Lecture terminée, mais aucun horaire lisible. Tu peux les compléter manuellement.');
+      if(first&&options.review!==false&&!weekComplete(it))openReview(it.id,true);
+    }
+    if(first)toast(it.start!=null?'Lecture terminée · vérifie ta semaine':'Dates introuvables · indique le lundi',3500);
     return { ok: nbRows(it) > 0 };
   }
 
@@ -1306,11 +1338,11 @@ dialog .secondary{background:var(--bg)}
         }
       } while (rescanAgain);
     } finally { scanning = false; }
-    if (manual && total) toast(`Relecture terminée : lignes repérées sur ${ok}/${total} plannings`, 4000);
+    if(manual&&total)toast(`Relecture terminée : ${ok}/${total} plannings`,4000);
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.0 · 27 oct. 2026';
+  const APP_VERSION = 'v2.1 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
