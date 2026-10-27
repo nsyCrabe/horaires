@@ -189,7 +189,7 @@
     <h3>Dates des plannings</h3>
     <p>Relit les dates sur les captures dont tu n'as pas modifié le nom à la main.</p>
     <p id="rowsInfo"></p>
-    <button class="secondary" id="rescan">Relancer la détection</button>
+    <div class="row"><button class="secondary" id="editWeekDate">Corriger la date de la semaine</button><button class="secondary" id="rescan">Relancer la détection</button></div>
   </section>
   <section>
     <h3>Mise à jour</h3>
@@ -200,6 +200,13 @@
   <p class="version" id="version"></p>
 </dialog>
 
+<dialog id="dateDlg" aria-labelledby="dateTitle">
+  <h2 id="dateTitle">Corriger la semaine</h2>
+  <p>Indique le lundi de cette semaine. La correction ne sera pas écrasée par la reconnaissance automatique.</p>
+  <label for="weekDate">Lundi de la semaine</label>
+  <input id="weekDate" type="date" required style="display:block;width:100%;padding:12px;margin:12px 0;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;color-scheme:dark">
+  <div class="row"><button class="primary" id="saveWeekDate">Enregistrer</button><button class="secondary" id="cancelWeekDate">Annuler</button></div>
+</dialog>
 <dialog id="addDlg" aria-labelledby="addTitle">
   <h2 id="addTitle">Ajouter une capture</h2>
   <p>Choisis la capture de ton planning dans ta galerie.</p>
@@ -450,16 +457,42 @@
     }
   }
 
+  /* ---------- Détection des captures identiques ---------- */
+  const digest = async blob => {
+    const bytes = await blob.arrayBuffer();
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(hash), x => x.toString(16).padStart(2, '0')).join('');
+  };
+  async function findDuplicate(blob, hash, list) {
+    for (const it of list) {
+      if (it.blob.size !== blob.size) continue;
+      const existing = it.imageHash || await digest(it.blob);
+      if (existing === hash) return it;
+    }
+    return null;
+  }
+
   /* ---------- Ajout / renommage / suppression ---------- */
   async function addFiles(files) {
-    let lastId = null, n = 0;
+    let lastId = null, n = 0, duplicates = 0;
+    const known = [...items];
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
-      const when = f.lastModified || Date.now();
-      lastId = await put({ blob: f, label: 'Planning du ' + fmtDate(when), added: Date.now() + n });
-      n++;
+      try {
+        const imageHash = await digest(f);
+        const duplicate = await findDuplicate(f, imageHash, known);
+        if (duplicate) { duplicates++; if (lastId == null) lastId = duplicate.id; continue; }
+        const when = f.lastModified || Date.now();
+        const item = { blob: f, imageHash, label: 'Planning du ' + fmtDate(when), added: Date.now() + n };
+        lastId = await put(item);
+        known.push({ ...item, id: lastId });
+        n++;
+      } catch (e) { toast('Impossible d’ajouter cette capture', 3500); }
     }
-    if (n) { await refresh(lastId); toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée'); scanPending(); }
+    if (lastId != null) await refresh(lastId);
+    if (n) scanPending();
+    if (duplicates) toast(duplicates + ' capture(s) déjà présente(s), ignorée(s)', 3500);
+    else if (n) toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
   }
   const openPicker = () => fileInput.click();
   $('#add').onclick = openPicker;
@@ -474,6 +507,40 @@
   btnDel.onclick = async () => {
     const cur = items.find(i => i.id === currentId); if (!cur) return;
     if (confirm('Supprimer « ' + cur.label + ' » ?')) { await remove(cur.id); dropCache(cur.id); currentId = null; await refresh(); toast('Supprimé'); }
+  };
+
+  /* ---------- Correction manuelle des dates ---------- */
+  const dateDlg = $('#dateDlg');
+  $('#editWeekDate').onclick = () => {
+    const cur = items.find(i => i.id === currentId);
+    if (!cur) return toast('Sélectionne d’abord un planning');
+    const d = cur.start != null ? new Date(cur.start) : new Date();
+    if (cur.start == null) d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    $('#weekDate').value = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+    dateDlg.showModal();
+  };
+  $('#cancelWeekDate').onclick = () => dateDlg.close();
+  $('#saveWeekDate').onclick = async () => {
+    const cur = await getOne(currentId);
+    const raw = $('#weekDate').value;
+    if (!cur || !/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return toast('Choisis une date valide');
+    const [y, m, d] = raw.split('-').map(Number);
+    const chosen = new Date(y, m - 1, d);
+    if (chosen.getFullYear() !== y || chosen.getMonth() !== m - 1 || chosen.getDate() !== d || chosen.getDay() !== 1) {
+      return toast('Choisis un lundi valide', 3500);
+    }
+    cur.start = chosen.getTime();
+    cur.manualStart = true;
+    cur.label = 'Planning du ' + chosen.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    cur.custom = false;
+    cur.rowsV = 0;
+    delete cur.rows;
+    await put(cur);
+    dropCache(cur.id);
+    dateDlg.close();
+    await refresh(cur.id);
+    toast('Semaine corrigée');
+    scanPending();
   };
 
   /* ---------- Zoom, déplacement, double tap, clic pour agrandir ---------- */
@@ -767,7 +834,7 @@
       let data2 = null;
       r = parseRange(data.text || '');
       if (!r) { data2 = await pass('6'); r = parseRange(data2.text || ''); }
-      okR = !!r && (!r.suspect || stale.start == null);
+      okR = !stale.manualStart && !!r && (!r.suspect || stale.start == null);
       const start = okR ? r.start : stale.start;
       if (start != null) {
         rows = rowsFromGrid(canvas, data, start);
@@ -806,7 +873,7 @@
     const oldStart = it.start;
     it.scanned = true; it.rowsV = 7;
     it.dbg = dbg; it.dbgText = rawText.slice(0, 700);
-    if (okR) { it.start = r.start; if (!it.custom) it.label = r.label; }
+    if (okR && !it.manualStart) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
     if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
     else if (startChanged) delete it.rows;
@@ -839,7 +906,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.2 · 22 oct. 2026';
+  const APP_VERSION = 'v21.3 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -910,7 +977,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, imageHash: it.imageHash || null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -932,7 +999,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: !!o.manualStart, imageHash: o.imageHash || undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
         n++;
       }
       await refresh(lastId);
