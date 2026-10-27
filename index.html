@@ -62,6 +62,13 @@
   #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
   #today.dim .t2 { font-weight: 600; color: var(--muted); }
   #today.dim .tscroll { display: none; }
+  #countdown[hidden],#shiftTimes[hidden]{display:none}
+  #countdown{margin:0 12px 8px;padding:12px;border:1px solid var(--accent);border-radius:12px;font-weight:650;text-align:center}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+  .cal-day{min-height:58px;border:1px solid var(--line);border-radius:9px;background:var(--bg);padding:4px 1px;font-size:.85rem}
+  .cal-day.has-shift{border-color:var(--accent)}.cal-day small{display:block;color:var(--muted);font-size:.63rem;margin-top:4px}
+  .shift-field{display:grid;gap:5px;flex:1;min-width:110px;margin:8px 0}
+  .shift-field input,.shift-field select{width:100%;padding:10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:9px;color-scheme:dark}
 
   #stage {
     flex: 1; min-height: 0; position: relative; overflow: hidden;
@@ -154,6 +161,8 @@
   <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
 </div>
 
+<div id="countdown" hidden></div>
+<div class="row" style="padding:0 12px 8px"><button class="secondary" id="openCalendar" style="flex:1">Calendrier</button><button class="secondary" id="openShifts" style="flex:1">Modifier les horaires</button></div>
 <main id="stage">
   <img id="img" alt="Planning de travail" hidden>
   <div id="empty">
@@ -200,6 +209,20 @@
   <p class="version" id="version"></p>
 </dialog>
 
+<dialog id="shiftDlg" aria-labelledby="shiftTitle">
+<h2 id="shiftTitle">Horaires de la journée</h2><p>Ces horaires sont confirmés manuellement et n'altèrent pas ta capture.</p>
+<label class="shift-field">Date<input type="date" id="shiftDate"></label>
+<label class="shift-field">Journée<select id="shiftStatus"><option value="work">Travail</option><option value="off">Repos</option></select></label>
+<div class="row" id="shiftTimes"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="5" value="0" id="shiftBreak"></label></div>
+<p>Une fin antérieure au début correspond à une fin après minuit.</p>
+<div class="row"><button class="primary" id="saveShift">Enregistrer</button><button class="secondary" id="deleteShift">Effacer</button><button class="secondary" id="cancelShift">Annuler</button></div>
+</dialog>
+<dialog id="calendarDlg" aria-labelledby="calendarTitle">
+<h2 id="calendarTitle">Calendrier mensuel</h2>
+<div class="row" style="align-items:center;justify-content:space-between;margin-bottom:12px"><button class="secondary" id="prevMonth">‹</button><strong id="calendarMonth"></strong><button class="secondary" id="nextMonth">›</button></div>
+<div id="calendarGrid" class="cal-grid"></div><p style="margin-top:12px">Appuie sur une journée pour saisir ou corriger ses horaires.</p>
+<button class="secondary" id="closeCalendar">Fermer</button>
+</dialog>
 <dialog id="dateDlg" aria-labelledby="dateTitle">
   <h2 id="dateTitle">Corriger la semaine</h2>
   <p>Indique le lundi de cette semaine. La correction ne sera pas écrasée par la reconnaissance automatique.</p>
@@ -332,6 +355,90 @@
     } catch (e) { return URL.createObjectURL(cur.blob); }
   }
 
+
+  /* ---------- Horaires saisis, calendrier et compte à rebours ---------- */
+  const keyDate=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+  const fromKey=k=>{const [y,m,d]=k.split('-').map(Number);return new Date(y,m-1,d);};
+  const monday=d=>{const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-(x.getDay()+6)%7);return x;};
+  const planFor=d=>items.find(it=>it.start!=null&&keyDate(new Date(it.start))===keyDate(monday(d)))||null;
+  const shiftFor=d=>{const it=planFor(d);return it&&it.shifts&&it.shifts[keyDate(d)]||null;};
+  const mins=t=>{const m=/^(\d{2}):(\d{2})$/.exec(t||'');return m?+m[1]*60 + +m[2]:null;};
+  let editKey='',calendarMonth=new Date();
+  function fillShift(){
+    const sh=shiftFor(fromKey(editKey));
+    $('#shiftDate').value=editKey;
+    $('#shiftStatus').value=sh&&sh.off?'off':'work';
+    $('#shiftStart').value=sh&&!sh.off?sh.start:'';
+    $('#shiftEnd').value=sh&&!sh.off?sh.end:'';
+    $('#shiftBreak').value=sh&&!sh.off?sh.breakMinutes||0:0;
+    $('#shiftTimes').hidden=$('#shiftStatus').value==='off';
+  }
+  function openShift(d){
+    if(!planFor(d))return toast('Aucun planning pour cette semaine');
+    editKey=keyDate(d);fillShift();$('#shiftDlg').showModal();
+  }
+  $('#shiftDate').onchange=()=>{
+    const d=fromKey($('#shiftDate').value);
+    if(!Number.isFinite(d.getTime())||!planFor(d)){toast('Aucun planning pour cette date');fillShift();return;}
+    editKey=keyDate(d);fillShift();
+  };
+  $('#shiftStatus').onchange=()=>$('#shiftTimes').hidden=$('#shiftStatus').value==='off';
+  $('#cancelShift').onclick=()=>$('#shiftDlg').close();
+  $('#saveShift').onclick=async()=>{
+    const it=planFor(fromKey(editKey));if(!it)return toast('Planning introuvable');
+    const off=$('#shiftStatus').value==='off',start=$('#shiftStart').value,end=$('#shiftEnd').value;
+    const a=mins(start),b=mins(end),br=Number($('#shiftBreak').value);
+    const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
+    if(!off&&(a==null||b==null||!Number.isInteger(br)||br<0||br>=duration||duration>960))return toast('Vérifie les heures et la pause',3500);
+    const fresh=await getOne(it.id);fresh.shifts=fresh.shifts||{};
+    fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br};
+    await put(fresh);$('#shiftDlg').close();await refresh(fresh.id);
+    if($('#calendarDlg').open)renderCalendar();toast('Horaires enregistrés');
+  };
+  $('#deleteShift').onclick=async()=>{
+    const it=planFor(fromKey(editKey));if(!it||!it.shifts||!it.shifts[editKey])return $('#shiftDlg').close();
+    const fresh=await getOne(it.id);delete fresh.shifts[editKey];await put(fresh);
+    $('#shiftDlg').close();await refresh(fresh.id);if($('#calendarDlg').open)renderCalendar();toast('Horaires effacés');
+  };
+  $('#openShifts').onclick=()=>{
+    const it=items.find(x=>x.id===currentId);
+    if(!it||it.start==null)return toast('Sélectionne un planning daté');
+    const today=new Date(),d=keyDate(monday(today))===keyDate(new Date(it.start))?today:new Date(it.start);
+    openShift(d);
+  };
+  function renderCalendar(){
+    const y=calendarMonth.getFullYear(),m=calendarMonth.getMonth(),grid=$('#calendarGrid');
+    $('#calendarMonth').textContent=calendarMonth.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+    grid.replaceChildren();
+    for(const label of ['L','M','M','J','V','S','D']){const x=document.createElement('span');x.textContent=label;x.style.textAlign='center';grid.append(x);}
+    const offset=(new Date(y,m,1).getDay()+6)%7;
+    for(let i=0;i<offset;i++)grid.append(document.createElement('span'));
+    for(let n=1;n<=new Date(y,m+1,0).getDate();n++){
+      const d=new Date(y,m,n),sh=shiftFor(d),it=planFor(d),b=document.createElement('button');
+      b.className='cal-day'+(sh?' has-shift':'');
+      const number=document.createElement('strong');number.textContent=n;b.append(number);
+      const info=document.createElement('small');info.textContent=sh?(sh.off?'Repos':sh.start+'–'+sh.end):(it?'À saisir':'—');b.append(info);
+      b.disabled=!it;b.style.opacity=it?'1':'.5';b.onclick=()=>openShift(d);grid.append(b);
+    }
+  }
+  $('#openCalendar').onclick=()=>{calendarMonth=new Date();renderCalendar();$('#calendarDlg').showModal();};
+  $('#prevMonth').onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1);renderCalendar();};
+  $('#nextMonth').onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);renderCalendar();};
+  $('#closeCalendar').onclick=()=>$('#calendarDlg').close();
+  function updateCountdown(){
+    const box=$('#countdown'),now=new Date(),sh=shiftFor(now);
+    if(!sh||sh.off){box.hidden=true;return;}
+    const a=mins(sh.start),b=mins(sh.end);
+    if(a==null||b==null){box.hidden=true;return;}
+    const day=fromKey(keyDate(now)),begin=new Date(day.getTime()+a*60000),finish=new Date(day.getTime()+(b<=a?b+1440:b)*60000);
+    const diff=now<begin?begin-now:now<finish?finish-now:0;
+    if(!diff){box.hidden=true;return;}
+    const minutes=Math.ceil(diff/60000),label=Math.floor(minutes/60)+' h '+String(minutes%60).padStart(2,'0');
+    box.textContent=now<begin?'Début du travail dans '+label:'Fin du travail dans '+label;
+    box.hidden=false;
+  }
+  setInterval(updateCountdown,30000);
+
   /* ---------- Bandeau « Aujourd'hui » ---------- */
   function weekOfToday() {
     const now = Date.now(), week = 7 * 864e5;
@@ -374,10 +481,12 @@
     todayBox.classList.toggle('dim', !u);
     if (u) {
       if (todayImg.getAttribute('src') !== u) todayImg.src = u;
-      $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+      const sh=shiftFor(new Date());
+      $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir');
     } else {
       todayImg.removeAttribute('src');
-      $('#todayHours').textContent = it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…';
+      const sh=shiftFor(new Date());
+      $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(it.scanned ? 'Ligne du jour non repérée : voir la capture ci-dessous' : 'Lecture du planning en cours…');
     }
   }
   const toggleToday = () => {
@@ -386,7 +495,8 @@
     if (it.id !== currentId) { currentId = it.id; render(); return; }
     if (todayBox.classList.contains('dim')) return;
     todayBox.classList.toggle('big');
-    $('#todayHours').textContent = todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir';
+    const sh=shiftFor(new Date());
+    $('#todayHours').textContent=sh?(sh.off?'Repos':sh.start+' – '+sh.end):(todayBox.classList.contains('big') ? 'Touche pour réduire' : 'Touche pour agrandir');
     $('.tscroll').scrollLeft = 0;
   };
   todayBox.onclick = toggleToday;
@@ -401,6 +511,7 @@
       currentId = cur ? cur.id : (items.length ? items[items.length - 1].id : null);
     }
     render();
+    updateCountdown();
     items.filter(it => highlightDay(it) != null).forEach(buildSrc);
   }
 
@@ -906,7 +1017,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.3 · 27 oct. 2026';
+  const APP_VERSION = 'v21.4 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -977,7 +1088,7 @@
     if (!items.length) return toast('Rien à sauvegarder');
     const out = [];
     for (const it of items) {
-      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, imageHash: it.imageHash || null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, data: await toDataURL(it.blob) });
+      out.push({ label: it.label, added: it.added, start: it.start ?? null, custom: !!it.custom, manualStart: !!it.manualStart, imageHash: it.imageHash || null, scanned: !!it.scanned, rows: it.rows ?? null, rowsV: it.rowsV ?? 0, shifts: it.shifts || {}, data: await toDataURL(it.blob) });
     }
     const blob = new Blob([JSON.stringify({ app: 'horaires', version: 1, items: out })], { type: 'application/json' });
     const a = document.createElement('a');
@@ -999,7 +1110,7 @@
       for (const o of j.items) {
         const blob = await (await fetch(o.data)).blob();
         if (have.has(o.added + '|' + blob.size)) continue;
-        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: !!o.manualStart, imageHash: o.imageHash || undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0 });
+        lastId = await put({ blob, label: o.label, added: o.added, start: o.start ?? undefined, custom: o.custom, manualStart: !!o.manualStart, imageHash: o.imageHash || undefined, scanned: o.scanned, rows: o.rows ?? undefined, rowsV: o.rows && o.rowsV === 7 ? 7 : 0, shifts: o.shifts && typeof o.shifts === 'object' ? o.shifts : {} });
         n++;
       }
       await refresh(lastId);
