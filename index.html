@@ -523,7 +523,7 @@
   $('#saveWeekDate').onclick = async () => {
     const cur = await getOne(currentId);
     const raw = $('#weekDate').value;
-    if (!cur || !/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return toast('Choisis une date valide');
+    if (!cur || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return toast('Choisis une date valide');
     const [y, m, d] = raw.split('-').map(Number);
     const chosen = new Date(y, m - 1, d);
     if (chosen.getFullYear() !== y || chosen.getMonth() !== m - 1 || chosen.getDate() !== d || chosen.getDay() !== 1) {
@@ -875,7 +875,7 @@
     it.dbg = dbg; it.dbgText = rawText.slice(0, 700);
     if (okR && !it.manualStart) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
-    if (rows) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
+    if (rows && it.start === start) { if (startChanged || Object.keys(rows).length >= nbRows(it)) it.rows = rows; }
     else if (startChanged) delete it.rows;
     await put(it);
     await refresh();
