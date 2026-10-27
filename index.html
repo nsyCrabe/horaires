@@ -161,6 +161,74 @@
   #addDlg .primary { width: 100%; margin-bottom: 10px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+/* MES HORAIRES V2 — premium monochrome */
+:root{--bg:#090a0c;--panel:#15171b;--line:#282b30;--text:#f5f5f2;--muted:#8e939d;--accent:#e9e9e4;--danger:#ff766f;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f5f5f2;--panel:#fff;--line:#e3e3df;--text:#17191d;--muted:#777b83;--accent:#202126;color-scheme:light}
+:root[data-accent="violet"]{--accent:#b7a2f5}
+:root[data-accent="green"]{--accent:#95d6bd}
+:root[data-accent="orange"]{--accent:#e6b58a}
+:root[data-accent="pink"]{--accent:#efb1cf}
+:root[data-theme="light"][data-accent="violet"]{--accent:#6652aa}
+:root[data-theme="light"][data-accent="green"]{--accent:#267b60}
+:root[data-theme="light"][data-accent="orange"]{--accent:#a35a24}
+:root[data-theme="light"][data-accent="pink"]{--accent:#a24473}
+html,body{height:100%;overscroll-behavior:none}
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;background:var(--bg);display:flex;align-items:stretch}
+body>header,body>#appShell,body>#bar{width:100%;max-width:760px;margin-left:auto;margin-right:auto}
+header{padding:20px 22px 12px;gap:10px;flex-shrink:0}
+header h1{font-size:1.18rem;letter-spacing:-.045em;font-weight:760}
+header h1::before{content:'◈';font-size:1.1rem;margin-right:10px;color:var(--muted)}
+.icon-btn{border-radius:50%;background:transparent;border:1px solid var(--line)}
+.icon-btn:active{background:var(--panel)}
+#appShell{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 18px 32px;scrollbar-width:thin}
+#appShell::-webkit-scrollbar{width:3px}
+#appShell::-webkit-scrollbar-thumb{background:var(--line)}
+.v2-eyebrow{font-size:.68rem;font-weight:750;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);margin:26px 4px 12px}
+.v2-topline{font-size:.78rem;color:var(--muted);margin:4px 4px 20px;letter-spacing:.04em}
+#today{margin:0;min-height:232px;padding:30px 26px 26px;border-radius:26px;background:var(--panel);border:1px solid var(--line);color:var(--text);box-shadow:none;gap:12px;cursor:default}
+#today.dim{background:var(--panel);border:1px solid var(--line)}
+#today .t1{font-size:.74rem;letter-spacing:.11em;text-transform:uppercase;font-weight:650;color:var(--muted);opacity:1}
+#today .t2,#today.dim .t2{font-size:clamp(2.1rem,8vw,3.7rem);font-weight:780;letter-spacing:-.065em;line-height:1.08;color:var(--text)}
+#todayDetails{font-size:.89rem;color:var(--muted);opacity:1}
+#today .tscroll{display:none}
+#today.dim .tscroll{display:none}
+#tomorrowInfo{margin:12px 0 0;border-radius:17px;padding:18px 20px;background:var(--panel);border:1px solid var(--line);font-size:.92rem}
+#countdown{margin:12px 0 0;padding:15px 18px;border-radius:16px;text-align:left;font-size:.86rem;font-weight:650;background:var(--panel);border:1px solid var(--line);color:var(--text)}
+.v2-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.v2-actions button{min-height:56px;text-align:left;font-weight:680;font-size:.87rem;letter-spacing:-.02em;padding:14px 16px}
+.v2-actions #reviewWeek{grid-column:1/-1;background:var(--text);color:var(--bg);border-color:var(--text)}
+.secondary{border:1px solid var(--line);background:var(--panel);border-radius:14px}
+.primary,#add{background:var(--text);color:var(--bg);border-radius:14px}
+#weekSummary{display:grid;gap:7px}
+.week-row{display:flex;align-items:center;gap:12px;text-align:left;width:100%;min-height:60px;border:1px solid var(--line);border-radius:15px;background:var(--panel);padding:11px 16px}
+.week-row .wd{width:66px;flex:none;font-size:.82rem;font-weight:700}
+.week-row .wd small{display:block;font-size:.7rem;color:var(--muted);margin-top:3px;font-weight:500}
+.week-row .wh{margin-left:auto;text-align:right;font-size:.92rem;font-weight:670;letter-spacing:-.015em}
+.week-row .wh small{display:block;color:var(--muted);font-size:.72rem;font-weight:450;margin-top:3px}
+.week-row.today-row{border-color:var(--text)}
+#captureControls{padding:0;margin:12px 0;gap:10px}
+#captureControls .secondary{flex:none}
+#stage{min-height:280px;max-height:520px;margin:12px 0 0;background:var(--panel);border:1px solid var(--line);border-radius:20px;flex:none;overflow:hidden}
+#stage[hidden]{display:none}
+#stage #empty{padding:36px 20px}
+#stage #empty h2{font-size:1.15rem}
+#bar{flex-shrink:0;padding:12px 18px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--bg);gap:12px}
+#chips{gap:7px}
+.chip{border-radius:13px;min-width:116px;max-width:190px;padding:9px 13px;background:var(--panel)}
+.chip[aria-current="true"]{background:var(--text);border-color:var(--text);color:var(--bg)}
+.chip[aria-current="true"] .c2{color:var(--bg);opacity:.68}
+.chip.now .c2{color:var(--muted)}
+.c1{font-size:.83rem;letter-spacing:-.02em}
+.c2{font-size:.69rem}
+#add{flex:none;border:0;border-radius:50%;width:46px;height:46px}
+#add svg{stroke:var(--bg)}
+dialog{border:1px solid var(--line);border-radius:26px 26px 0 0;box-shadow:0 -24px 100px rgba(0,0,0,.35)}
+dialog h2{font-size:1.3rem;letter-spacing:-.04em}
+dialog .primary{background:var(--text);color:var(--bg)}
+dialog .secondary{background:var(--bg)}
+.shift-field input,.shift-field select,#weekDate{color-scheme:normal!important}
+#toast{bottom:calc(100px + env(safe-area-inset-bottom));max-width:90%;text-align:center}
+@media(min-width:760px){body{padding-top:20px}#appShell{padding:0 26px 35px}#today{min-height:260px}dialog{margin:auto;border-radius:24px;max-height:85vh}}
 </style>
 </head>
 <body>
@@ -178,25 +246,39 @@
   </button>
 </header>
 
-<div id="today" class="big" hidden role="button" tabindex="0" aria-live="polite">
-  <span class="t1" id="todayDay"></span>
-  <span class="t2" id="todayHours"></span>
-  <span id="todayDetails"></span>
-  <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
-</div>
-
-<div id="tomorrowInfo" hidden></div>
-<div id="countdown" hidden></div>
-<div class="row" style="padding:0 12px 8px"><button class="secondary" id="reviewWeek" style="flex:1">Vérifier la semaine</button></div>
-<div class="row" style="padding:0 12px 8px"><button class="secondary" id="openCalendar" style="flex:1">Calendrier</button><button class="secondary" id="openShifts" style="flex:1">Modifier les horaires</button></div>
-<div id="captureControls" hidden><span id="captureStatus"></span><button class="secondary" id="toggleCapture" type="button">Voir la capture</button></div>
-<main id="stage">
-  <img id="img" alt="Planning de travail" hidden>
-  <div id="empty">
-    <h2>Aucun planning pour l'instant</h2>
-    <p>Ajoute la capture d'écran de tes horaires. Elle reste sur ton téléphone et s'ouvre en un tap, même sans réseau.</p>
-    <button class="primary" id="addEmpty">Ajouter une capture</button>
+<main id="appShell">
+  <p class="v2-topline" id="v2Date"></p>
+  <section aria-label="Horaires du jour">
+    <div id="today" class="big" hidden role="button" tabindex="0" aria-live="polite">
+      <span class="t1" id="todayDay"></span>
+      <span class="t2" id="todayHours"></span>
+      <span id="todayDetails"></span>
+      <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
+    </div>
+    <div id="tomorrowInfo" hidden></div>
+    <div id="countdown" hidden></div>
+  </section>
+  <div class="v2-actions">
+    <button class="secondary" id="reviewWeek">✦ Vérifier ma semaine</button>
+    <button class="secondary" id="openCalendar">▦ Calendrier</button>
+    <button class="secondary" id="openShifts">＋ Modifier un jour</button>
   </div>
+  <section aria-labelledby="weekHeading">
+    <h2 id="weekHeading" class="v2-eyebrow">Ma semaine</h2>
+    <div id="weekSummary"></div>
+  </section>
+  <section aria-label="Captures de planning">
+    <h2 class="v2-eyebrow">Capture originale</h2>
+    <div id="captureControls" hidden><span id="captureStatus"></span><button class="secondary" id="toggleCapture" type="button">Voir la capture</button></div>
+    <div id="stage">
+      <img id="img" alt="Planning de travail" hidden>
+      <div id="empty">
+        <h2>Ton planning commence ici.</h2>
+        <p>Ajoute une capture de tes horaires. On détectera les journées pour que tu puisses les vérifier.</p>
+        <button class="primary" id="addEmpty">Importer une capture</button>
+      </div>
+    </div>
+  </section>
 </main>
 
 <nav id="bar" aria-label="Semaines">
@@ -687,8 +769,31 @@
     items.filter(it => highlightDay(it) != null).forEach(buildSrc);
   }
 
+  function renderWeekSummary(){
+    const root=$('#weekSummary');root.replaceChildren();
+    const it=items.find(x=>x.id===currentId);
+    $('#v2Date').textContent=new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    if(!it||it.start==null){
+      const p=document.createElement('p');p.style.color='var(--muted)';p.style.padding='12px 4px';
+      p.textContent=it?'Dates à vérifier pour afficher les journées.':'Importe ton premier planning pour commencer.';root.append(p);return;
+    }
+    const mondayDate=new Date(it.start);
+    for(let i=0;i<7;i++){
+      const d=new Date(mondayDate);d.setDate(d.getDate()+i);
+      const key=keyDate(d),sh=it.shifts&&it.shifts[key];
+      const btn=document.createElement('button');btn.className='week-row'+(key===keyDate(new Date())?' today-row':'');
+      const left=document.createElement('span');left.className='wd';
+      left.textContent=d.toLocaleDateString('fr-FR',{weekday:'short'}).replace('.','');
+      const small=document.createElement('small');small.textContent=d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});left.append(small);
+      const right=document.createElement('span');right.className='wh';right.textContent=shiftDescription(sh);
+      if(sh&&!sh.off){const sub=document.createElement('small');sub.textContent='Pause '+(sh.breakMinutes||0)+' min · '+durationLabel(sh);right.append(sub);}
+      else if(!sh){const sub=document.createElement('small');sub.textContent='Appuyer pour compléter';right.append(sub);}
+      btn.append(left,right);btn.onclick=()=>openShift(d);root.append(btn);
+    }
+  }
   function render(dir = 0) {
     renderToday();
+    renderWeekSummary();
     chips.innerHTML = '';
     items.forEach(it => {
       const b = document.createElement('button');
@@ -1205,7 +1310,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.7 · 27 oct. 2026';
+  const APP_VERSION = 'v2.0 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
