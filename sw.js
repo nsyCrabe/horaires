@@ -1,4 +1,4 @@
-const CACHE = 'horaires-v7';
+const CACHE = 'horaires-v8';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable.png'];
 
 self.addEventListener('install', e => {
