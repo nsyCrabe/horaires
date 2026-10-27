@@ -70,6 +70,14 @@
   #today.dim { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
   #today.dim .t2 { font-weight: 600; color: var(--muted); }
   #today.dim .tscroll { display: none; }
+  #reviewRows{display:grid;gap:12px;margin:12px 0;max-height:55vh;overflow:auto}
+  .review-day{border:1px solid var(--line);border-radius:12px;padding:10px}
+  .review-day strong{display:block;margin-bottom:6px}
+  .review-day .row{align-items:center}
+  .review-day label{font-size:.8rem;flex:1;min-width:75px}
+  .review-day input,.review-day select{width:100%;padding:9px 5px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+  .review-day small{display:block;margin-top:6px;color:var(--muted);overflow-wrap:anywhere}
+  #reviewWarning{color:var(--muted)}
   #today .t2{font-size:1.5rem;line-height:1.3}
   #todayDetails{font-size:.87rem;line-height:1.5;opacity:.95}
   #tomorrowInfo{margin:0 12px 8px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:.9rem}
@@ -179,6 +187,7 @@
 
 <div id="tomorrowInfo" hidden></div>
 <div id="countdown" hidden></div>
+<div class="row" style="padding:0 12px 8px"><button class="secondary" id="reviewWeek" style="flex:1">Vérifier la semaine</button></div>
 <div class="row" style="padding:0 12px 8px"><button class="secondary" id="openCalendar" style="flex:1">Calendrier</button><button class="secondary" id="openShifts" style="flex:1">Modifier les horaires</button></div>
 <div id="captureControls" hidden><span id="captureStatus"></span><button class="secondary" id="toggleCapture" type="button">Voir la capture</button></div>
 <main id="stage">
@@ -245,6 +254,13 @@
   <button class="secondary" id="useOcrProposal">Utiliser cette proposition</button>
 </div>
 <div class="row"><button class="primary" id="saveShift">Enregistrer</button><button class="secondary" id="deleteShift">Effacer</button><button class="secondary" id="cancelShift">Annuler</button></div>
+</dialog>
+<dialog id="reviewDlg" aria-labelledby="reviewTitle">
+<h2 id="reviewTitle">Vérifier la semaine</h2>
+<p id="reviewInfo">Vérifie chaque journée. Les cases illisibles restent « À vérifier » : elles ne sont jamais considérées automatiquement comme du repos.</p>
+<div id="reviewRows"></div>
+<p id="reviewWarning" role="status"></p>
+<div class="row"><button class="primary" id="confirmWeek">Valider la semaine</button><button class="secondary" id="closeReview">Annuler</button></div>
 </dialog>
 <dialog id="calendarDlg" aria-labelledby="calendarTitle">
 <h2 id="calendarTitle">Calendrier mensuel</h2>
@@ -435,6 +451,73 @@
     if(duration<60||duration>960)return null;
     return {start:matches[0],end:matches[1],breakMinutes:0};
   }
+  function ocrDayGuess(text){
+    if(!text||!text.trim())return null;
+    const proposal=ocrShiftProposal(text);
+    if(proposal)return {type:'work',...proposal};
+    // Un repos n'est suggéré que si la ligne contient explicitement un mot de repos.
+    const cleaned=text.replace(/\b(?:lun(?:di)?|mar(?:di)?|mer(?:credi)?|jeu(?:di)?|ven(?:dredi)?|sam(?:edi)?|dim(?:anche)?)\b/gi,'');
+    if(/\b(repos|cong[eé]s?|rtt|off)\b/i.test(cleaned)&&!/(?:\d{1,2})\s*[:hH.]\s*\d{2}/.test(cleaned))return {type:'off'};
+    return null;
+  }
+  let reviewId=null;
+  function openReview(id,auto=false){
+    const it=items.find(x=>x.id===id);
+    if(!it||it.start==null){if(!auto)toast('Corrige d’abord la date de la semaine');return;}
+    if($('#reviewDlg').open)return;
+    reviewId=id;
+    const root=$('#reviewRows');root.replaceChildren();
+    const start=new Date(it.start);
+    for(let i=0;i<7;i++){
+      const d=new Date(start);d.setDate(d.getDate()+i);
+      const key=keyDate(d),existing=it.shifts&&it.shifts[key];
+      const raw=it.rows&&it.rows[d.getDate()]&&it.rows[d.getDate()].text||'';
+      const guess=existing?(existing.off?{type:'off'}:{type:'work',...existing}):ocrDayGuess(raw);
+      const card=document.createElement('div');card.className='review-day';card.dataset.day=key;
+      const name=document.createElement('strong');name.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});card.append(name);
+      const line=document.createElement('div');line.className='row';
+      const makeField=(title,el)=>{
+        const label=document.createElement('label');label.textContent=title;label.append(el);line.append(label);return el;
+      };
+      const status=document.createElement('select');status.className='review-status';
+      for(const [v,t] of [['unknown','À vérifier'],['work','Travail'],['off','Repos']]){const op=document.createElement('option');op.value=v;op.textContent=t;status.append(op);}
+      status.value=guess?guess.type:'unknown';makeField('Journée',status);
+      const a=document.createElement('input');a.type='time';a.className='review-start';a.value=guess&&guess.start||'';makeField('Début',a);
+      const b=document.createElement('input');b.type='time';b.className='review-end';b.value=guess&&guess.end||'';makeField('Fin',b);
+      const pause=document.createElement('input');pause.type='number';pause.min='0';pause.max='720';pause.step='5';pause.className='review-break';pause.value=guess&&guess.breakMinutes||0;makeField('Pause min',pause);
+      const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=pause.disabled=!active;};
+      status.onchange=sync;sync();card.append(line);
+      const note=document.createElement('small');note.textContent=existing?'Déjà enregistré — conservé dans la proposition':guess?'Proposition OCR — à vérifier':'Lecture incertaine — complète manuellement';
+      card.append(note);root.append(card);
+    }
+    $('#reviewInfo').textContent='Vérifie les 7 journées avant de valider. Les horaires existants sont préremplis et ne seront modifiés qu’après confirmation.';
+    $('#reviewWarning').textContent='';
+    $('#reviewDlg').showModal();
+  }
+  $('#reviewWeek').onclick=()=>openReview(currentId);
+  $('#closeReview').onclick=()=>$('#reviewDlg').close();
+  $('#confirmWeek').onclick=async()=>{
+    const it=items.find(x=>x.id===reviewId);if(!it)return;
+    const shifts={...(it.shifts||{})};
+    for(const card of $('#reviewRows').children){
+      const key=card.dataset.day,status=card.querySelector('.review-status').value;
+      if(status==='unknown'){$('#reviewWarning').textContent='Il reste des journées « À vérifier ». Complète-les avant de valider.';return;}
+      if(status==='off'){shifts[key]={off:true};continue;}
+      const start=card.querySelector('.review-start').value,end=card.querySelector('.review-end').value;
+      const a=mins(start),b=mins(end),br=Number(card.querySelector('.review-break').value);
+      const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
+      if(a==null||b==null||duration<60||duration>960||!Number.isInteger(br)||br<0||br>=duration){
+        $('#reviewWarning').textContent='Vérifie les heures et la pause du '+key+'.';return;
+      }
+      shifts[key]={start,end,breakMinutes:br};
+    }
+    const fresh=await getOne(it.id);if(!fresh)return;
+    const wasComplete=weekComplete(fresh);
+    fresh.shifts=shifts;
+    if(!wasComplete&&fresh.captureHidden===undefined)fresh.captureHidden=true;
+    await put(fresh);$('#reviewDlg').close();await refresh(fresh.id);
+    toast('Semaine validée · capture masquée');
+  };
   function proposalFor(d){
     const it=planFor(d);
     return it&&it.rows&&it.rows[d.getDate()]?ocrShiftProposal(it.rows[d.getDate()].text):null;
@@ -1094,6 +1177,7 @@
     else if (startChanged) delete it.rows;
     await put(it);
     await refresh();
+    if(first&&it.start!=null&&rows&&!weekComplete(it))openReview(it.id,true);
     if (first) toast(okR ? 'Dates détectées : ' + r.label.replace('Planning du ', '') : 'Dates non trouvées, tu peux renommer', 2800);
     return { ok: nbRows(it) > 0 };
   }
@@ -1121,7 +1205,7 @@
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v21.6 · 27 oct. 2026';
+  const APP_VERSION = 'v21.7 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
