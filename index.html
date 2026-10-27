@@ -525,24 +525,39 @@ dialog .secondary{background:var(--bg)}
     return Math.floor(total/60)+' h '+String(total%60).padStart(2,'0');
   };
   /* Suggestions OCR uniquement : jamais enregistrées sans confirmation */
-  function ocrShiftProposal(text){
-    if(!text)return null;
-    const matches=[...text.matchAll(/(?:^|[^\d])([01]?\d|2[0-3])\s*[:hH.]\s*([0-5]\d)(?!\d)/g)]
-      .map(m=>String(+m[1]).padStart(2,'0')+':'+m[2]);
-    if(matches.length!==2)return null;
-    const a=mins(matches[0]),b=mins(matches[1]),duration=b<=a?b+1440-a:b-a;
-    if(duration<60||duration>960)return null;
-    return {start:matches[0],end:matches[1],breakMinutes:0};
-  }
-  function ocrDayGuess(text){
+  // Les plannings peuvent contenir deux créneaux et des pauses « 24mn ».
+  function parseShiftLine(text){
     if(!text||!text.trim())return null;
-    const proposal=ocrShiftProposal(text);
-    if(proposal)return {type:'work',...proposal};
-    // Un repos n'est suggéré que si la ligne contient explicitement un mot de repos.
-    const cleaned=text.replace(/\b(?:lun(?:di)?|mar(?:di)?|mer(?:credi)?|jeu(?:di)?|ven(?:dredi)?|sam(?:edi)?|dim(?:anche)?)\b/gi,'');
-    if(/\b(repos|cong[eé]s?|rtt|off)\b/i.test(cleaned)&&!/(?:\d{1,2})\s*[:hH.]\s*\d{2}/.test(cleaned))return {type:'off'};
-    return null;
+    const clean=text.replace(/[–—−]/g,'-').replace(/(\d)\s*[hH]\s*(\d{2})/g,'$1:$2');
+    const slots=[...clean.matchAll(/(?:^|[^\d])([01]?\d|2[0-3])\s*[:.]\s*([0-5]\d)\s*-\s*([01]?\d|2[0-3])\s*[:.]\s*([0-5]\d)(?!\d)/g)]
+      .map(m=>({start:String(+m[1]).padStart(2,'0')+':'+m[2],end:String(+m[3]).padStart(2,'0')+':'+m[4],index:m.index,length:m[0].length}));
+    if(slots.length>2)return null;
+    if(!slots.length){
+      if(/\b(repos|cong[eé]s?|rtt|off)\b/i.test(clean))return {type:'off'};
+      return null;
+    }
+    const segments=slots.map(x=>({start:x.start,end:x.end}));
+    for(const seg of segments){
+      const a=mins(seg.start),b=mins(seg.end),duration=b<=a?b+1440-a:b-a;
+      if(duration<15||duration>960)return null;
+    }
+    const pauseMatches=[...clean.matchAll(/\b(\d{1,3})\s*(?:mn|min(?:utes?)?)\b/gi)].map(m=>({value:+m[1],index:m.index}));
+    const breaks=segments.map(()=>0);
+    for(const pause of pauseMatches){
+      if(pause.value>180)continue;
+      let target=0;
+      if(slots.length===2&&pause.index>=slots[1].index)target=1;
+      breaks[target]+=pause.value;
+    }
+    return {type:'work',start:segments[0].start,end:segments[segments.length-1].end,
+      breakMinutes:breaks.reduce((a,b)=>a+b,0),segments,segmentBreaks:breaks,
+      split:segments.length===2};
   }
+  function ocrShiftProposal(text){
+    const p=parseShiftLine(text);
+    return p&&p.type==='work'?p:null;
+  }
+  function ocrDayGuess(text){return parseShiftLine(text);}
   let reviewId=null;
   const scanStatus=message=>{const el=$('#scanStatus');el.hidden=!message;el.textContent=message||'';};
   const weekStartFor=it=>it.start!=null?new Date(it.start):null;
@@ -579,7 +594,8 @@ dialog .secondary{background:var(--bg)}
       const pause=document.createElement('input');pause.type='number';pause.min='0';pause.max='720';pause.step='5';pause.className='review-break';pause.value=guess&&guess.breakMinutes||0;makeField('Pause min',pause);
       const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=pause.disabled=!active;};
       status.onchange=sync;sync();card.append(line);
-      const note=document.createElement('small');note.textContent=existing?'Déjà enregistré — conservé dans la proposition':guess?'Proposition OCR — à vérifier':'Lecture incertaine — complète manuellement';
+      const note=document.createElement('small');
+      note.textContent=existing?'Déjà enregistré — conservé dans la proposition':guess&&guess.split?'Deux créneaux détectés : '+guess.segments.map(x=>x.start+'–'+x.end).join(' et ')+' · pauses '+guess.segmentBreaks.join(' + ')+' min. Vérifie avant validation.':guess?'Proposition OCR — à vérifier':'Lecture incertaine — complète manuellement';
       card.append(note);root.append(card);
     }
     $('#reviewInfo').textContent='Vérifie les 7 journées avant de valider. Les horaires existants sont préremplis et ne seront modifiés qu’après confirmation.';
@@ -611,7 +627,9 @@ dialog .secondary{background:var(--bg)}
       if(a==null||b==null||duration<60||duration>960||!Number.isInteger(br)||br<0||br>=duration){
         $('#reviewWarning').textContent='Vérifie les heures et la pause du '+key+'.';return;
       }
-      shifts[key]={start,end,breakMinutes:br};
+      const detected=ocrDayGuess(it.rows&&it.rows[fromKey(key).getDate()]&&it.rows[fromKey(key).getDate()].text||'');
+      const sameSplit=detected&&detected.split&&detected.start===start&&detected.end===end&&detected.breakMinutes===br;
+      shifts[key]={start,end,breakMinutes:br,...(sameSplit?{segments:detected.segments,segmentBreaks:detected.segmentBreaks}:{})};
     }
     const fresh=await getOne(it.id);if(!fresh)return;
     const wasComplete=weekComplete(fresh);
@@ -632,7 +650,7 @@ dialog .secondary{background:var(--bg)}
   $('#useOcrProposal').onclick=()=>{
     const p=proposalFor(fromKey(editKey));if(!p)return;
     $('#shiftStatus').value='work';$('#shiftTimes').hidden=false;
-    $('#shiftStart').value=p.start;$('#shiftEnd').value=p.end;$('#shiftBreak').value=0;
+    $('#shiftStart').value=p.start;$('#shiftEnd').value=p.end;$('#shiftBreak').value=p.breakMinutes||0;
     $('#ocrProposal').hidden=true;
     toast('Vérifie les horaires puis enregistre');
   };
@@ -913,7 +931,7 @@ dialog .secondary{background:var(--bg)}
       } catch (e) { toast('Impossible d’ajouter cette capture', 3500); }
     }
     if (lastId != null) await refresh(lastId);
-    if (n) scanPending();
+    if (n) {scanStatus('Capture ajoutée. Détection automatique en cours…');scanPending();}
     if (duplicates) toast(duplicates + ' capture(s) déjà présente(s), ignorée(s)', 3500);
     else if (n) toast(n > 1 ? n + ' captures ajoutées' : 'Capture ajoutée');
   }
@@ -1342,7 +1360,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.1 · 27 oct. 2026';
+  const APP_VERSION = 'v2.2 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
