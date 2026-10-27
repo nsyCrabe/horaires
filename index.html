@@ -516,12 +516,14 @@ dialog .secondary{background:var(--bg)}
     for(let i=0;i<7;i++){const d=new Date(start);d.setDate(d.getDate()+i);if(!it.shifts[keyDate(d)])return false;}
     return true;
   };
-  const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':sh.start+' – '+sh.end;
+  const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':Array.isArray(sh.segments)&&sh.segments.length>1?sh.segments.map(x=>x.start+'–'+x.end).join(' / '):sh.start+' – '+sh.end;
   const durationLabel=sh=>{
     if(!sh||sh.off)return '';
     const a=mins(sh.start),b=mins(sh.end);
     if(a==null||b==null)return '';
-    const total=(b<=a?b+1440:b)-a-(Number(sh.breakMinutes)||0);
+    const total=Array.isArray(sh.segments)&&sh.segments.length>1
+      ?sh.segments.reduce((sum,seg)=>{const x=mins(seg.start),y=mins(seg.end);return sum+(x==null||y==null?0:(y<=x?y+1440:y)-x);},0)-(Number(sh.breakMinutes)||0)
+      :(b<=a?b+1440:b)-a-(Number(sh.breakMinutes)||0);
     return Math.floor(total/60)+' h '+String(total%60).padStart(2,'0');
   };
   /* Suggestions OCR uniquement : jamais enregistrées sans confirmation */
@@ -1302,6 +1304,14 @@ dialog .secondary{background:var(--bg)}
           }
         }
       }
+      if(start!=null){
+        const plain={...plainByDay(data.text||'',start),...plainByDay(data2&&data2.text||'',start)};
+        if(!rows)rows={};
+        for(let i=0;i<7;i++){
+          const d=new Date(start);d.setDate(d.getDate()+i);const n=d.getDate();
+          if(plain[n]&&(!rows[n]||!rows[n].text))rows[n]={...(rows[n]||{y0:0,y1:0}),text:plain[n]};
+        }
+      }
       dbg = `${ocrWords(data).length} mots, ${ocrLines(data).length} lignes, ${(data.text || '').length} caractères, `
         + `${rows ? Object.keys(rows).length : 0} cases dont ${rows ? Object.values(rows).filter(x => x.text).length : 0} avec texte`;
       rawText = data.text || '';
@@ -1317,7 +1327,7 @@ dialog .secondary{background:var(--bg)}
     }
     const it = (await getOne(stale.id)) || stale;
     const oldStart = it.start;
-    it.scanned = true; it.rowsV = 7;
+    it.scanned = true; it.rowsV = 8;
     it.dbg = dbg; it.dbgText = rawText.slice(0, 700);
     if (okR && !it.manualStart) { it.start = r.start; if (!it.custom) it.label = r.label; }
     const startChanged = okR && oldStart != null && r.start !== oldStart;
@@ -1346,7 +1356,7 @@ dialog .secondary{background:var(--bg)}
         rescanAgain = false;
         const now = Date.now(), week = 7 * 864e5;
         const cur = i => (i.start != null && now >= i.start && now < i.start + week) ? 1 : 0;
-        const todo = items.filter(i => !i.scanned || i.rowsV !== 7)
+        const todo = items.filter(i => !i.scanned || i.rowsV !== 8)
           .sort((x, y) => (cur(y) - cur(x)) || ((y.start ?? y.added) - (x.start ?? x.added)));
         if (todo.some(i => i.scanned)) manual = true;
         for (const it of todo) {
@@ -1360,7 +1370,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.2 · 27 oct. 2026';
+  const APP_VERSION = 'v2.2.1 · 27 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
