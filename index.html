@@ -348,7 +348,7 @@ dialog .secondary{background:var(--bg)}
   <div class="row"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label></div>
   <label class="dual-break-toggle"><input type="checkbox" id="dualBreak"><span>J’ai une pause le matin et une l’après-midi<small>Active deux durées et les boutons chronomètre.</small></span></label>
   <div id="singleBreakField"><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="1" value="0" id="shiftBreak"></label></div>
-  <div class="row" id="dualBreakFields" hidden><label class="shift-field">Pause du matin<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakMorning"></label><label class="shift-field">Coupure (1 h à 2 h)<input type="number" min="60" max="120" step="5" value="60" id="shiftSplitBreak"></label><label class="shift-field">Pause de l’après-midi<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakAfternoon"></label></div>
+  <div class="row" id="dualBreakFields" hidden><label class="shift-field">Pause du matin<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakMorning"></label><label class="shift-field">Coupure<select id="shiftSplitBreak"><option value="60">1 h</option><option value="75">1 h 15</option><option value="90">1 h 30</option><option value="105">1 h 45</option><option value="120">2 h</option></select></label><label class="shift-field">Pause de l’après-midi<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakAfternoon"></label></div>
 </div>
 <p>Une fin antérieure au début correspond à une fin après minuit.</p>
 <div id="ocrProposal" hidden style="padding:12px;margin:10px 0;border:1px solid var(--accent);border-radius:12px">
@@ -654,7 +654,9 @@ dialog .secondary{background:var(--bg)}
       const dualLine=document.createElement('div');dualLine.className='row review-dual-fields';
       const morning=document.createElement('input');morning.type='number';morning.min='1';morning.max='180';morning.step='1';morning.className='review-break-morning';morning.value=hasDualBreak(guess)?guess.morningBreakMinutes:0;
       const afternoon=document.createElement('input');afternoon.type='number';afternoon.min='1';afternoon.max='180';afternoon.step='1';afternoon.className='review-break-afternoon';afternoon.value=hasDualBreak(guess)?guess.afternoonBreakMinutes:0;
-      const splitBreak=document.createElement('input');splitBreak.type='number';splitBreak.min='60';splitBreak.max='120';splitBreak.step='5';splitBreak.className='review-split-break';splitBreak.value=hasDualBreak(guess)?guess.splitBreakMinutes||60:60;
+      const splitBreak=document.createElement('select');splitBreak.className='review-split-break';
+      for(const [value,text] of [[60,'1 h'],[75,'1 h 15'],[90,'1 h 30'],[105,'1 h 45'],[120,'2 h']]){const option=document.createElement('option');option.value=value;option.textContent=text;splitBreak.append(option);}
+      splitBreak.value=String(hasDualBreak(guess)?guess.splitBreakMinutes||60:60);
       const addDualField=(title,el)=>{const label=document.createElement('label');label.textContent=title;label.append(el);dualLine.append(label);};
       addDualField('Pause matin (min)',morning);addDualField('Coupure (60–120 min)',splitBreak);addDualField('Pause après-midi (min)',afternoon);card.append(dualLine);
       const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=!active;dual.disabled=!active;pause.disabled=!active||dual.checked;dualLabel.hidden=!active;pause.parentElement.hidden=dual.checked;dualLine.hidden=!active||!dual.checked;morning.disabled=splitBreak.disabled=afternoon.disabled=!active||!dual.checked;};
@@ -1513,7 +1515,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.5 · 28 oct. 2026';
+  const APP_VERSION = 'v2.6 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
