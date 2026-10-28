@@ -835,11 +835,29 @@ dialog .secondary{background:var(--bg)}
   $('#closeCalendar').onclick=()=>$('#calendarDlg').close();
   const breakTimerKey=(day,period)=>'horaires_break_timer_v1_'+day+'_'+period;
   const formatClock=d=>d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-  function startBreakTimer(period,minutes){
+  async function enableBreakNotifications(){
+    if(!('Notification' in window))return false;
+    if(Notification.permission==='granted')return true;
+    if(Notification.permission==='denied')return false;
+    try{return await Notification.requestPermission()==='granted';}catch(e){return false;}
+  }
+  async function notifyBreakEnd(period){
+    const title='Pause terminée';
+    const body=period==='split'?'Ta coupure est terminée : il est temps de rebadger.':'Il est temps de rebadger.';
+    try{
+      if(Notification.permission==='granted'&&'serviceWorker' in navigator){
+        const registration=await navigator.serviceWorker.ready;
+        await registration.showNotification(title,{body,icon:'icons/icon-192.png',badge:'icons/icon-192.png',tag:'pause-'+keyDate(new Date())+'-'+period,renotify:true});
+      }else if(Notification.permission==='granted')new Notification(title,{body,icon:'icons/icon-192.png'});
+    }catch(e){}
+    if(navigator.vibrate)navigator.vibrate([250,120,250]);
+  }
+  async function startBreakTimer(period,minutes){
     const end=Date.now()+minutes*60000;
-    localStorage.setItem(breakTimerKey(keyDate(new Date()),period),JSON.stringify({end,minutes}));
+    localStorage.setItem(breakTimerKey(keyDate(new Date()),period),JSON.stringify({end,minutes,notified:false}));
     updateBreakTimers();
-    toast('Pause lancée · badge à '+formatClock(new Date(end)),3500);
+    const notifications=await enableBreakNotifications();
+    toast('Pause lancée · badge à '+formatClock(new Date(end))+(notifications?' · notification activée':''),3500);
   }
   function updateBreakTimers(){
     const root=$('#breakTimers'),now=new Date(),sh=shiftFor(now);
@@ -862,6 +880,7 @@ dialog .secondary{background:var(--bg)}
         button.setAttribute('aria-label',pauseName+', '+mm+' minutes et '+ss+' secondes restantes');
         button.onclick=e=>e.stopPropagation();
       }else if(timer){
+        if(!timer.notified){timer.notified=true;localStorage.setItem(breakTimerKey(keyDate(now),period),JSON.stringify(timer));notifyBreakEnd(period);}
         button.textContent='✓ '+pauseName+' terminée · badge maintenant';
         button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
       }else{
@@ -1524,7 +1543,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.8 · 28 oct. 2026';
+  const APP_VERSION = 'v2.9 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
