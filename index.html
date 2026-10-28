@@ -843,27 +843,30 @@ dialog .secondary{background:var(--bg)}
   }
   function updateBreakTimers(){
     const root=$('#breakTimers'),now=new Date(),sh=shiftFor(now);
-    if(!hasDualBreak(sh)){root.hidden=true;root.replaceChildren();return;}
+    const singleMinutes=sh&&!sh.off?Number(sh.breakMinutes)||0:0;
+    if(!hasDualBreak(sh)&&singleMinutes<=0){root.hidden=true;root.replaceChildren();return;}
     root.hidden=false;root.replaceChildren();
-    for(const [period,label,minutes] of [
-      ['morning','matin',Number(sh.morningBreakMinutes)],
+    const timers=hasDualBreak(sh)?[
+      ['morning','du matin',Number(sh.morningBreakMinutes)],
       ['split','coupure',Number(sh.splitBreakMinutes)||60],
-      ['afternoon','après-midi',Number(sh.afternoonBreakMinutes)]
-    ]){
+      ['afternoon','de l’après-midi',Number(sh.afternoonBreakMinutes)]
+    ]:[['single','',singleMinutes]];
+    for(const [period,label,minutes] of timers){
       const button=document.createElement('button');button.type='button';button.className='break-timer';
+      const pauseName=period==='split'?'Coupure':label?'Pause '+label:'Pause';
       let timer=null;try{timer=JSON.parse(localStorage.getItem(breakTimerKey(keyDate(now),period))||'null');}catch(e){}
       if(timer&&Number(timer.end)>Date.now()){
         const seconds=Math.ceil((timer.end-Date.now())/1000),mm=Math.floor(seconds/60),ss=String(seconds%60).padStart(2,'0');
         button.classList.add('running');
-        button.textContent='Pause '+label+' · '+mm+':'+ss+' · badge à '+formatClock(new Date(timer.end));
-        button.setAttribute('aria-label','Pause du '+label+', '+mm+' minutes et '+ss+' secondes restantes');
+        button.textContent=pauseName+' · '+mm+':'+ss+' · badge à '+formatClock(new Date(timer.end));
+        button.setAttribute('aria-label',pauseName+', '+mm+' minutes et '+ss+' secondes restantes');
         button.onclick=e=>e.stopPropagation();
       }else if(timer){
-        button.textContent='✓ Pause '+label+' terminée · badge maintenant';
+        button.textContent='✓ '+pauseName+' terminée · badge maintenant';
         button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
       }else{
         const durationText=period==='split'?hoursLabel(minutes):minutes+' min';
-        button.textContent='▶ Commencer le chronomètre de '+durationText+' ('+label+')';
+        button.textContent='▶ Commencer le chronomètre de '+durationText+(label?' ('+pauseName.toLowerCase()+')':'');
         button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
       }
       root.append(button);
@@ -1521,7 +1524,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.7 · 28 oct. 2026';
+  const APP_VERSION = 'v2.8 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
