@@ -547,8 +547,12 @@ dialog .secondary{background:var(--bg)}
   };
   const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':Array.isArray(sh.segments)&&sh.segments.length>1?sh.segments.map(x=>x.start+'–'+x.end).join(' / '):sh.start+' – '+sh.end;
   const hasDualBreak=sh=>!!(sh&&sh.dualBreak&&Number(sh.morningBreakMinutes)>0&&Number(sh.afternoonBreakMinutes)>0);
+  const hoursLabel=minutes=>{
+    const h=Math.floor(Number(minutes)/60),m=Number(minutes)%60;
+    return h+' h'+(m?' '+String(m).padStart(2,'0'):'');
+  };
   const breakDescription=sh=>hasDualBreak(sh)
-    ?'Pauses : '+sh.morningBreakMinutes+' min matin · coupure '+(sh.splitBreakMinutes||60)+' min · '+sh.afternoonBreakMinutes+' min après-midi'
+    ?'Pauses : '+sh.morningBreakMinutes+' min matin · coupure '+hoursLabel(sh.splitBreakMinutes||60)+' · '+sh.afternoonBreakMinutes+' min après-midi'
     :'Pause : '+(sh&&sh.breakMinutes||0)+' min';
   const durationLabel=sh=>{
     if(!sh||sh.off)return '';
@@ -858,7 +862,8 @@ dialog .secondary{background:var(--bg)}
         button.textContent='✓ Pause '+label+' terminée · badge maintenant';
         button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
       }else{
-        button.textContent='▶ Commencer le chronomètre de '+minutes+' min ('+label+')';
+        const durationText=period==='split'?hoursLabel(minutes):minutes+' min';
+        button.textContent='▶ Commencer le chronomètre de '+durationText+' ('+label+')';
         button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
       }
       root.append(button);
@@ -1516,7 +1521,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.6 · 28 oct. 2026';
+  const APP_VERSION = 'v2.7 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
