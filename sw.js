@@ -1,4 +1,4 @@
-const CACHE = 'horaires-v13';
+const CACHE = 'horaires-v14';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable.png'];
 
 self.addEventListener('install', e => {
@@ -45,3 +45,4 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./index.html')))
   );
 });
+
