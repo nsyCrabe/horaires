@@ -194,9 +194,20 @@ header h1::before{content:'◈';font-size:1.1rem;margin-right:10px;color:var(--m
 #today.dim .tscroll{display:none}
 #tomorrowInfo{margin:12px 0 0;border-radius:17px;padding:18px 20px;background:var(--panel);border:1px solid var(--line);font-size:.92rem}
 #countdown{margin:12px 0 0;padding:15px 18px;border-radius:16px;text-align:left;font-size:.86rem;font-weight:650;background:var(--panel);border:1px solid var(--line);color:var(--text)}
+.break-timers{display:grid;gap:8px;margin-top:4px}
+.break-timers[hidden]{display:none}
+.break-timer{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:13px;background:var(--bg);color:var(--text);text-align:left;font-size:.84rem;font-weight:680}
+.break-timer.running{border-color:var(--text);background:var(--text);color:var(--bg)}
 .v2-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .v2-actions button{min-height:56px;text-align:left;font-weight:680;font-size:.87rem;letter-spacing:-.02em;padding:14px 16px}
 .v2-actions #reviewWeek{grid-column:1/-1;background:var(--text);color:var(--bg);border-color:var(--text)}
+.quick-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:10px}
+.quick-actions button{min-height:42px;padding:9px 7px;border-radius:11px;font-size:.76rem;font-weight:680;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dual-break-toggle{display:flex;align-items:flex-start;gap:10px;padding:12px;margin:10px 0;border:1px solid var(--line);border-radius:12px;background:var(--bg);cursor:pointer}
+.dual-break-toggle input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
+.dual-break-toggle span{font-size:.9rem;line-height:1.35}
+.dual-break-toggle small{display:block;color:var(--muted);margin-top:3px}
+#dualBreakFields[hidden]{display:none}
 .secondary{border:1px solid var(--line);background:var(--panel);border-radius:14px}
 .primary,#add{background:var(--text);color:var(--bg);border-radius:14px}
 #weekSummary{display:grid;gap:7px}
@@ -253,6 +264,7 @@ dialog .secondary{background:var(--bg)}
       <span class="t1" id="todayDay"></span>
       <span class="t2" id="todayHours"></span>
       <span id="todayDetails"></span>
+      <div id="breakTimers" class="break-timers" hidden></div>
       <div class="tscroll"><img id="todayImg" alt="Planning du jour"></div>
     </div>
     <div id="tomorrowInfo" hidden></div>
@@ -261,13 +273,15 @@ dialog .secondary{background:var(--bg)}
   <div id="scanStatus" role="status" aria-live="polite" style="margin:12px 2px 0;color:var(--muted);font-size:.84rem" hidden></div>
   <div class="v2-actions">
     <button class="secondary" id="reviewWeek">✦ Vérifier ma semaine</button>
-    <button class="secondary" id="pastePlanning">▤ Coller le texte (Lens)</button>
-    <button class="secondary" id="openCalendar">▦ Calendrier</button>
-    <button class="secondary" id="openShifts">＋ Modifier un jour</button>
   </div>
   <section aria-labelledby="weekHeading">
     <h2 id="weekHeading" class="v2-eyebrow">Ma semaine</h2>
     <div id="weekSummary"></div>
+    <div class="quick-actions" aria-label="Actions rapides">
+      <button class="secondary" id="pastePlanning" title="Coller le texte depuis Google Lens">▤ Lens</button>
+      <button class="secondary" id="openCalendar">▦ Calendrier</button>
+      <button class="secondary" id="openShifts">＋ Modifier</button>
+    </div>
   </section>
   <section aria-label="Captures de planning">
     <h2 class="v2-eyebrow">Capture originale</h2>
@@ -330,7 +344,12 @@ dialog .secondary{background:var(--bg)}
 <h2 id="shiftTitle">Horaires de la journée</h2><p>Ces horaires sont confirmés manuellement et n'altèrent pas ta capture.</p>
 <label class="shift-field">Date<input type="date" id="shiftDate"></label>
 <label class="shift-field">Journée<select id="shiftStatus"><option value="work">Travail</option><option value="off">Repos</option></select></label>
-<div class="row" id="shiftTimes"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="5" value="0" id="shiftBreak"></label></div>
+<div id="shiftTimes">
+  <div class="row"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label></div>
+  <label class="dual-break-toggle"><input type="checkbox" id="dualBreak"><span>J’ai une pause le matin et une l’après-midi<small>Active deux durées et les boutons chronomètre.</small></span></label>
+  <div id="singleBreakField"><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="1" value="0" id="shiftBreak"></label></div>
+  <div class="row" id="dualBreakFields" hidden><label class="shift-field">Pause du matin<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakMorning"></label><label class="shift-field">Pause de l’après-midi<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakAfternoon"></label></div>
+</div>
 <p>Une fin antérieure au début correspond à une fin après minuit.</p>
 <div id="ocrProposal" hidden style="padding:12px;margin:10px 0;border:1px solid var(--accent);border-radius:12px">
   <strong>Horaires détectés sur la capture</strong>
@@ -526,6 +545,10 @@ dialog .secondary{background:var(--bg)}
     return true;
   };
   const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':Array.isArray(sh.segments)&&sh.segments.length>1?sh.segments.map(x=>x.start+'–'+x.end).join(' / '):sh.start+' – '+sh.end;
+  const hasDualBreak=sh=>!!(sh&&sh.dualBreak&&Number(sh.morningBreakMinutes)>0&&Number(sh.afternoonBreakMinutes)>0);
+  const breakDescription=sh=>hasDualBreak(sh)
+    ?'Pauses : '+sh.morningBreakMinutes+' min matin · '+sh.afternoonBreakMinutes+' min après-midi'
+    :'Pause : '+(sh&&sh.breakMinutes||0)+' min';
   const durationLabel=sh=>{
     if(!sh||sh.off)return '';
     const a=mins(sh.start),b=mins(sh.end);
@@ -625,8 +648,17 @@ dialog .secondary{background:var(--bg)}
       const a=document.createElement('input');a.type='time';a.className='review-start';a.value=guess&&guess.start||'';makeField('Début',a);
       const b=document.createElement('input');b.type='time';b.className='review-end';b.value=guess&&guess.end||'';makeField('Fin',b);
       const pause=document.createElement('input');pause.type='number';pause.min='0';pause.max='720';pause.step='5';pause.className='review-break';pause.value=guess&&guess.breakMinutes||0;makeField('Pause min',pause);
-      const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=pause.disabled=!active;};
-      status.onchange=sync;sync();card.append(line);
+      const dualLabel=document.createElement('label');dualLabel.className='dual-break-toggle';
+      const dual=document.createElement('input');dual.type='checkbox';dual.className='review-dual';dual.checked=hasDualBreak(guess);
+      const dualText=document.createElement('span');dualText.textContent='Deux pauses (matin + après-midi)';dualLabel.append(dual,dualText);card.append(line,dualLabel);
+      const dualLine=document.createElement('div');dualLine.className='row review-dual-fields';
+      const morning=document.createElement('input');morning.type='number';morning.min='1';morning.max='180';morning.step='1';morning.className='review-break-morning';morning.value=hasDualBreak(guess)?guess.morningBreakMinutes:0;
+      const afternoon=document.createElement('input');afternoon.type='number';afternoon.min='1';afternoon.max='180';afternoon.step='1';afternoon.className='review-break-afternoon';afternoon.value=hasDualBreak(guess)?guess.afternoonBreakMinutes:0;
+      const addDualField=(title,el)=>{const label=document.createElement('label');label.textContent=title;label.append(el);dualLine.append(label);};
+      addDualField('Pause matin (min)',morning);addDualField('Pause après-midi (min)',afternoon);card.append(dualLine);
+      const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=!active;dual.disabled=!active;pause.disabled=!active||dual.checked;dualLabel.hidden=!active;pause.parentElement.hidden=dual.checked;dualLine.hidden=!active||!dual.checked;morning.disabled=afternoon.disabled=!active||!dual.checked;};
+      dual.onchange=sync;
+      status.onchange=sync;sync();
       const note=document.createElement('small');
       note.textContent=existing?'Déjà enregistré — conservé dans la proposition':guess&&guess.split?'Deux créneaux détectés : '+guess.segments.map(x=>x.start+'–'+x.end).join(' et ')+' · pauses '+guess.segmentBreaks.join(' + ')+' min. Vérifie avant validation.':guess?'Proposition OCR — à vérifier':'Lecture incertaine — complète manuellement';
       card.append(note);root.append(card);
@@ -679,14 +711,17 @@ dialog .secondary{background:var(--bg)}
       if(status==='unknown'){$('#reviewWarning').textContent='Il reste des journées « À vérifier ». Complète-les avant de valider.';return;}
       if(status==='off'){shifts[key]={off:true};continue;}
       const start=card.querySelector('.review-start').value,end=card.querySelector('.review-end').value;
-      const a=mins(start),b=mins(end),br=Number(card.querySelector('.review-break').value);
+      const dual=card.querySelector('.review-dual').checked;
+      const morning=Number(card.querySelector('.review-break-morning').value),afternoon=Number(card.querySelector('.review-break-afternoon').value);
+      const a=mins(start),b=mins(end),br=dual?morning+afternoon:Number(card.querySelector('.review-break').value);
       const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
-      if(a==null||b==null||duration<60||duration>960||!Number.isInteger(br)||br<0||br>=duration){
-        $('#reviewWarning').textContent='Vérifie les heures et la pause du '+key+'.';return;
+      const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(afternoon)||morning<=0||afternoon<=0);
+      if(a==null||b==null||duration<60||duration>960||invalidDual||!Number.isInteger(br)||br<0||br>=duration){
+        $('#reviewWarning').textContent='Vérifie les heures et les pauses du '+key+'.';return;
       }
       const detected=ocrDayGuess(it.rows&&it.rows[fromKey(key).getDate()]&&it.rows[fromKey(key).getDate()].text||'');
       const sameSplit=detected&&detected.split&&detected.start===start&&detected.end===end&&detected.breakMinutes===br;
-      shifts[key]={start,end,breakMinutes:br,...(sameSplit?{segments:detected.segments,segmentBreaks:detected.segmentBreaks}:{})};
+      shifts[key]={start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,afternoonBreakMinutes:afternoon}:{}),...(sameSplit?{segments:detected.segments,segmentBreaks:detected.segmentBreaks}:{})};
     }
     const fresh=await getOne(it.id);if(!fresh)return;
     const wasComplete=weekComplete(fresh);
@@ -708,6 +743,7 @@ dialog .secondary{background:var(--bg)}
     const p=proposalFor(fromKey(editKey));if(!p)return;
     $('#shiftStatus').value='work';$('#shiftTimes').hidden=false;
     $('#shiftStart').value=p.start;$('#shiftEnd').value=p.end;$('#shiftBreak').value=p.breakMinutes||0;
+    $('#dualBreak').checked=false;syncDualBreakFields();
     $('#ocrProposal').hidden=true;
     toast('Vérifie les horaires puis enregistre');
   };
@@ -718,9 +754,19 @@ dialog .secondary{background:var(--bg)}
     $('#shiftStart').value=sh&&!sh.off?sh.start:'';
     $('#shiftEnd').value=sh&&!sh.off?sh.end:'';
     $('#shiftBreak').value=sh&&!sh.off?sh.breakMinutes||0:0;
+    $('#dualBreak').checked=hasDualBreak(sh);
+    $('#shiftBreakMorning').value=hasDualBreak(sh)?sh.morningBreakMinutes:0;
+    $('#shiftBreakAfternoon').value=hasDualBreak(sh)?sh.afternoonBreakMinutes:0;
+    syncDualBreakFields();
     $('#shiftTimes').hidden=$('#shiftStatus').value==='off';
     showProposal();
   }
+  function syncDualBreakFields(){
+    const dual=$('#dualBreak').checked;
+    $('#singleBreakField').hidden=dual;
+    $('#dualBreakFields').hidden=!dual;
+  }
+  $('#dualBreak').onchange=syncDualBreakFields;
   function openShift(d){
     if(!planFor(d))return toast('Aucun planning pour cette semaine');
     editKey=keyDate(d);fillShift();$('#shiftDlg').showModal();
@@ -735,12 +781,15 @@ dialog .secondary{background:var(--bg)}
   $('#saveShift').onclick=async()=>{
     const it=planFor(fromKey(editKey));if(!it)return toast('Planning introuvable');
     const off=$('#shiftStatus').value==='off',start=$('#shiftStart').value,end=$('#shiftEnd').value;
-    const a=mins(start),b=mins(end),br=Number($('#shiftBreak').value);
+    const a=mins(start),b=mins(end),dual=$('#dualBreak').checked;
+    const morning=Number($('#shiftBreakMorning').value),afternoon=Number($('#shiftBreakAfternoon').value);
+    const br=dual?morning+afternoon:Number($('#shiftBreak').value);
     const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
-    if(!off&&(a==null||b==null||!Number.isInteger(br)||br<0||br>=duration||duration>960))return toast('Vérifie les heures et la pause',3500);
+    const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(afternoon)||morning<=0||afternoon<=0);
+    if(!off&&(a==null||b==null||invalidDual||!Number.isInteger(br)||br<0||br>=duration||duration>960))return toast('Vérifie les heures et les pauses',3500);
     const fresh=await getOne(it.id);fresh.shifts=fresh.shifts||{};
     const wasComplete=weekComplete(fresh);
-    fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br};
+    fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,afternoonBreakMinutes:afternoon}:{})};
     if(!wasComplete&&weekComplete(fresh)&&fresh.captureHidden===undefined)fresh.captureHidden=true;
     await put(fresh);$('#shiftDlg').close();await refresh(fresh.id);
     if($('#calendarDlg').open)renderCalendar();toast('Horaires enregistrés');
@@ -775,6 +824,40 @@ dialog .secondary{background:var(--bg)}
   $('#prevMonth').onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1);renderCalendar();};
   $('#nextMonth').onclick=()=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1);renderCalendar();};
   $('#closeCalendar').onclick=()=>$('#calendarDlg').close();
+  const breakTimerKey=(day,period)=>'horaires_break_timer_v1_'+day+'_'+period;
+  const formatClock=d=>d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  function startBreakTimer(period,minutes){
+    const end=Date.now()+minutes*60000;
+    localStorage.setItem(breakTimerKey(keyDate(new Date()),period),JSON.stringify({end,minutes}));
+    updateBreakTimers();
+    toast('Pause lancée · badge à '+formatClock(new Date(end)),3500);
+  }
+  function updateBreakTimers(){
+    const root=$('#breakTimers'),now=new Date(),sh=shiftFor(now);
+    if(!hasDualBreak(sh)){root.hidden=true;root.replaceChildren();return;}
+    root.hidden=false;root.replaceChildren();
+    for(const [period,label,minutes] of [
+      ['morning','matin',Number(sh.morningBreakMinutes)],
+      ['afternoon','après-midi',Number(sh.afternoonBreakMinutes)]
+    ]){
+      const button=document.createElement('button');button.type='button';button.className='break-timer';
+      let timer=null;try{timer=JSON.parse(localStorage.getItem(breakTimerKey(keyDate(now),period))||'null');}catch(e){}
+      if(timer&&Number(timer.end)>Date.now()){
+        const seconds=Math.ceil((timer.end-Date.now())/1000),mm=Math.floor(seconds/60),ss=String(seconds%60).padStart(2,'0');
+        button.classList.add('running');
+        button.textContent='Pause '+label+' · '+mm+':'+ss+' · badge à '+formatClock(new Date(timer.end));
+        button.setAttribute('aria-label','Pause du '+label+', '+mm+' minutes et '+ss+' secondes restantes');
+        button.onclick=e=>e.stopPropagation();
+      }else if(timer){
+        button.textContent='✓ Pause '+label+' terminée · badge maintenant';
+        button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
+      }else{
+        button.textContent='▶ Commencer le chronomètre de '+minutes+' min ('+label+')';
+        button.onclick=e=>{e.stopPropagation();startBreakTimer(period,minutes);};
+      }
+      root.append(button);
+    }
+  }
   function updateCountdown(){
     const box=$('#countdown'),now=new Date(),sh=shiftFor(now);
     if(!sh||sh.off){box.hidden=true;return;}
@@ -788,6 +871,7 @@ dialog .secondary{background:var(--bg)}
     box.hidden=false;
   }
   setInterval(updateCountdown,30000);
+  setInterval(updateBreakTimers,1000);
 
   /* ---------- Bandeau « Aujourd'hui » ---------- */
   function weekOfToday() {
@@ -829,7 +913,8 @@ dialog .secondary{background:var(--bg)}
     $('#todayDay').textContent="Aujourd'hui · "+now.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
     todayBox.hidden=false;
     $('#todayHours').textContent=shiftDescription(sh);
-    $('#todayDetails').textContent=sh?(sh.off?'Profite de ta journée !':'Pause : '+(sh.breakMinutes||0)+' min · Travail : '+durationLabel(sh)):'Renseigne tes horaires via « Modifier les horaires »';
+    $('#todayDetails').textContent=sh?(sh.off?'Profite de ta journée !':breakDescription(sh)+' · Travail : '+durationLabel(sh)):'Renseigne tes horaires via « Modifier »';
+    updateBreakTimers();
     // La capture reste disponible sur demande, même quand les 7 jours sont validés.
     const selected=items.find(x=>x.id===currentId);
     const showImage=!selected||!weekComplete(selected)||!selected.captureHidden;
@@ -881,7 +966,7 @@ dialog .secondary{background:var(--bg)}
       left.textContent=d.toLocaleDateString('fr-FR',{weekday:'short'}).replace('.','');
       const small=document.createElement('small');small.textContent=d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});left.append(small);
       const right=document.createElement('span');right.className='wh';right.textContent=shiftDescription(sh);
-      if(sh&&!sh.off){const sub=document.createElement('small');sub.textContent='Pause '+(sh.breakMinutes||0)+' min · '+durationLabel(sh);right.append(sub);}
+      if(sh&&!sh.off){const sub=document.createElement('small');sub.textContent=breakDescription(sh)+' · '+durationLabel(sh);right.append(sub);}
       else if(!sh){const sub=document.createElement('small');sub.textContent='Appuyer pour compléter';right.append(sub);}
       btn.append(left,right);btn.onclick=()=>openShift(d);root.append(btn);
     }
@@ -1425,7 +1510,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.3 · 27 oct. 2026';
+  const APP_VERSION = 'v2.4 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
@@ -1563,3 +1648,4 @@ dialog .secondary{background:var(--bg)}
 </script>
 </body>
 </html>
+
