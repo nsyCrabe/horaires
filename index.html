@@ -348,7 +348,7 @@ dialog .secondary{background:var(--bg)}
   <div class="row"><label class="shift-field">Début<input type="time" id="shiftStart"></label><label class="shift-field">Fin<input type="time" id="shiftEnd"></label></div>
   <label class="dual-break-toggle"><input type="checkbox" id="dualBreak"><span>J’ai une pause le matin et une l’après-midi<small>Active deux durées et les boutons chronomètre.</small></span></label>
   <div id="singleBreakField"><label class="shift-field">Pause (minutes)<input type="number" min="0" max="720" step="1" value="0" id="shiftBreak"></label></div>
-  <div class="row" id="dualBreakFields" hidden><label class="shift-field">Pause du matin<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakMorning"></label><label class="shift-field">Pause de l’après-midi<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakAfternoon"></label></div>
+  <div class="row" id="dualBreakFields" hidden><label class="shift-field">Pause du matin<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakMorning"></label><label class="shift-field">Coupure (1 h à 2 h)<input type="number" min="60" max="120" step="5" value="60" id="shiftSplitBreak"></label><label class="shift-field">Pause de l’après-midi<input type="number" min="1" max="180" step="1" value="0" id="shiftBreakAfternoon"></label></div>
 </div>
 <p>Une fin antérieure au début correspond à une fin après minuit.</p>
 <div id="ocrProposal" hidden style="padding:12px;margin:10px 0;border:1px solid var(--accent);border-radius:12px">
@@ -547,7 +547,7 @@ dialog .secondary{background:var(--bg)}
   const shiftDescription=sh=>!sh?'Non renseigné':sh.off?'Repos':Array.isArray(sh.segments)&&sh.segments.length>1?sh.segments.map(x=>x.start+'–'+x.end).join(' / '):sh.start+' – '+sh.end;
   const hasDualBreak=sh=>!!(sh&&sh.dualBreak&&Number(sh.morningBreakMinutes)>0&&Number(sh.afternoonBreakMinutes)>0);
   const breakDescription=sh=>hasDualBreak(sh)
-    ?'Pauses : '+sh.morningBreakMinutes+' min matin · '+sh.afternoonBreakMinutes+' min après-midi'
+    ?'Pauses : '+sh.morningBreakMinutes+' min matin · coupure '+(sh.splitBreakMinutes||60)+' min · '+sh.afternoonBreakMinutes+' min après-midi'
     :'Pause : '+(sh&&sh.breakMinutes||0)+' min';
   const durationLabel=sh=>{
     if(!sh||sh.off)return '';
@@ -654,9 +654,10 @@ dialog .secondary{background:var(--bg)}
       const dualLine=document.createElement('div');dualLine.className='row review-dual-fields';
       const morning=document.createElement('input');morning.type='number';morning.min='1';morning.max='180';morning.step='1';morning.className='review-break-morning';morning.value=hasDualBreak(guess)?guess.morningBreakMinutes:0;
       const afternoon=document.createElement('input');afternoon.type='number';afternoon.min='1';afternoon.max='180';afternoon.step='1';afternoon.className='review-break-afternoon';afternoon.value=hasDualBreak(guess)?guess.afternoonBreakMinutes:0;
+      const splitBreak=document.createElement('input');splitBreak.type='number';splitBreak.min='60';splitBreak.max='120';splitBreak.step='5';splitBreak.className='review-split-break';splitBreak.value=hasDualBreak(guess)?guess.splitBreakMinutes||60:60;
       const addDualField=(title,el)=>{const label=document.createElement('label');label.textContent=title;label.append(el);dualLine.append(label);};
-      addDualField('Pause matin (min)',morning);addDualField('Pause après-midi (min)',afternoon);card.append(dualLine);
-      const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=!active;dual.disabled=!active;pause.disabled=!active||dual.checked;dualLabel.hidden=!active;pause.parentElement.hidden=dual.checked;dualLine.hidden=!active||!dual.checked;morning.disabled=afternoon.disabled=!active||!dual.checked;};
+      addDualField('Pause matin (min)',morning);addDualField('Coupure (60–120 min)',splitBreak);addDualField('Pause après-midi (min)',afternoon);card.append(dualLine);
+      const sync=()=>{const active=status.value==='work';a.disabled=b.disabled=!active;dual.disabled=!active;pause.disabled=!active||dual.checked;dualLabel.hidden=!active;pause.parentElement.hidden=dual.checked;dualLine.hidden=!active||!dual.checked;morning.disabled=splitBreak.disabled=afternoon.disabled=!active||!dual.checked;};
       dual.onchange=sync;
       status.onchange=sync;sync();
       const note=document.createElement('small');
@@ -712,16 +713,16 @@ dialog .secondary{background:var(--bg)}
       if(status==='off'){shifts[key]={off:true};continue;}
       const start=card.querySelector('.review-start').value,end=card.querySelector('.review-end').value;
       const dual=card.querySelector('.review-dual').checked;
-      const morning=Number(card.querySelector('.review-break-morning').value),afternoon=Number(card.querySelector('.review-break-afternoon').value);
-      const a=mins(start),b=mins(end),br=dual?morning+afternoon:Number(card.querySelector('.review-break').value);
+      const morning=Number(card.querySelector('.review-break-morning').value),splitBreak=Number(card.querySelector('.review-split-break').value),afternoon=Number(card.querySelector('.review-break-afternoon').value);
+      const a=mins(start),b=mins(end),br=dual?morning+splitBreak+afternoon:Number(card.querySelector('.review-break').value);
       const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
-      const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(afternoon)||morning<=0||afternoon<=0);
+      const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(splitBreak)||!Number.isInteger(afternoon)||morning<=0||splitBreak<60||splitBreak>120||afternoon<=0);
       if(a==null||b==null||duration<60||duration>960||invalidDual||!Number.isInteger(br)||br<0||br>=duration){
         $('#reviewWarning').textContent='Vérifie les heures et les pauses du '+key+'.';return;
       }
       const detected=ocrDayGuess(it.rows&&it.rows[fromKey(key).getDate()]&&it.rows[fromKey(key).getDate()].text||'');
       const sameSplit=detected&&detected.split&&detected.start===start&&detected.end===end&&detected.breakMinutes===br;
-      shifts[key]={start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,afternoonBreakMinutes:afternoon}:{}),...(sameSplit?{segments:detected.segments,segmentBreaks:detected.segmentBreaks}:{})};
+      shifts[key]={start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,splitBreakMinutes:splitBreak,afternoonBreakMinutes:afternoon}:{}),...(sameSplit?{segments:detected.segments,segmentBreaks:detected.segmentBreaks}:{})};
     }
     const fresh=await getOne(it.id);if(!fresh)return;
     const wasComplete=weekComplete(fresh);
@@ -756,6 +757,7 @@ dialog .secondary{background:var(--bg)}
     $('#shiftBreak').value=sh&&!sh.off?sh.breakMinutes||0:0;
     $('#dualBreak').checked=hasDualBreak(sh);
     $('#shiftBreakMorning').value=hasDualBreak(sh)?sh.morningBreakMinutes:0;
+    $('#shiftSplitBreak').value=hasDualBreak(sh)?sh.splitBreakMinutes||60:60;
     $('#shiftBreakAfternoon').value=hasDualBreak(sh)?sh.afternoonBreakMinutes:0;
     syncDualBreakFields();
     $('#shiftTimes').hidden=$('#shiftStatus').value==='off';
@@ -782,14 +784,14 @@ dialog .secondary{background:var(--bg)}
     const it=planFor(fromKey(editKey));if(!it)return toast('Planning introuvable');
     const off=$('#shiftStatus').value==='off',start=$('#shiftStart').value,end=$('#shiftEnd').value;
     const a=mins(start),b=mins(end),dual=$('#dualBreak').checked;
-    const morning=Number($('#shiftBreakMorning').value),afternoon=Number($('#shiftBreakAfternoon').value);
-    const br=dual?morning+afternoon:Number($('#shiftBreak').value);
+    const morning=Number($('#shiftBreakMorning').value),splitBreak=Number($('#shiftSplitBreak').value),afternoon=Number($('#shiftBreakAfternoon').value);
+    const br=dual?morning+splitBreak+afternoon:Number($('#shiftBreak').value);
     const duration=a==null||b==null?0:(b<=a?b+1440-a:b-a);
-    const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(afternoon)||morning<=0||afternoon<=0);
+    const invalidDual=dual&&(!Number.isInteger(morning)||!Number.isInteger(splitBreak)||!Number.isInteger(afternoon)||morning<=0||splitBreak<60||splitBreak>120||afternoon<=0);
     if(!off&&(a==null||b==null||invalidDual||!Number.isInteger(br)||br<0||br>=duration||duration>960))return toast('Vérifie les heures et les pauses',3500);
     const fresh=await getOne(it.id);fresh.shifts=fresh.shifts||{};
     const wasComplete=weekComplete(fresh);
-    fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,afternoonBreakMinutes:afternoon}:{})};
+    fresh.shifts[editKey]=off?{off:true}:{start,end,breakMinutes:br,...(dual?{dualBreak:true,morningBreakMinutes:morning,splitBreakMinutes:splitBreak,afternoonBreakMinutes:afternoon}:{})};
     if(!wasComplete&&weekComplete(fresh)&&fresh.captureHidden===undefined)fresh.captureHidden=true;
     await put(fresh);$('#shiftDlg').close();await refresh(fresh.id);
     if($('#calendarDlg').open)renderCalendar();toast('Horaires enregistrés');
@@ -838,6 +840,7 @@ dialog .secondary{background:var(--bg)}
     root.hidden=false;root.replaceChildren();
     for(const [period,label,minutes] of [
       ['morning','matin',Number(sh.morningBreakMinutes)],
+      ['split','coupure',Number(sh.splitBreakMinutes)||60],
       ['afternoon','après-midi',Number(sh.afternoonBreakMinutes)]
     ]){
       const button=document.createElement('button');button.type='button';button.className='break-timer';
@@ -1510,7 +1513,7 @@ dialog .secondary{background:var(--bg)}
   }
 
   /* ---------- Paramètres + installation ---------- */
-  const APP_VERSION = 'v2.4 · 28 oct. 2026';
+  const APP_VERSION = 'v2.5 · 28 oct. 2026';
   const dlg = $('#settings');
   $('#version').textContent = 'Version ' + APP_VERSION;
   let deferred = null;
